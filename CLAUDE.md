@@ -23,10 +23,19 @@ Never write the client secret to disk. Credentials live in 1Password; inject
 them at runtime:
 
 ```bash
+cp .env.op.example .env.op   # then edit to match your vault/item
 op run --env-file=.env.op -- ./scripts/discover-gateway.sh
 ```
 
-`.env.op` holds `op://` references, not secrets, which is why it is committed.
+Only `.env.op.example` is tracked. A real `.env.op` holds no secrets — just
+`op://` references — but those references name a local 1Password vault and item,
+which is org-internal detail that does not belong in a repo shared outside the
+company. Keep it untracked.
+
+If `OP_SERVICE_ACCOUNT_TOKEN` is exported globally, `op` authenticates as that
+service account rather than prompting for biometrics, and sees only the vaults
+granted to it — which surfaces as a confusing "X isn't a vault in this account".
+The committed `.envrc` unsets it for this repo (`direnv allow` once).
 
 ## Gateway path shape
 

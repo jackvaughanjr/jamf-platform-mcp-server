@@ -42,17 +42,17 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # directly, so the secret need never exist on disk.
 if [ -f "$REPO_ROOT/.env" ]; then
   set -a; . "$REPO_ROOT/.env"; set +a
-  warn "loaded .env from disk — prefer: op run --env-file=.env.op -- $0"
+  warn "loaded .env from disk — prefer: op run --env-file=.env.op -- $0  (cp .env.op.example .env.op first)"
 fi
 
 for cmd in curl jq; do
   command -v "$cmd" >/dev/null 2>&1 || die "$cmd is required but not on PATH"
 done
 for var in JAMF_CLIENT_ID JAMF_CLIENT_SECRET JAMF_TENANT_ID; do
-  [ -n "${!var:-}" ] || die "$var is not set (see .env.op / .env.example)"
+  [ -n "${!var:-}" ] || die "$var is not set (see .env.op.example)"
 done
 case "${JAMF_CLIENT_ID}" in
-  op://*) die "env still contains op:// references — run under: op run --env-file=.env.op -- $0" ;;
+  op://*) die "env still contains op:// references — run under: op run --env-file=.env.op -- $0  (cp .env.op.example .env.op first)" ;;
 esac
 
 BASE="${JAMF_GATEWAY_BASE_URL:-https://us.apigw.jamf.com}"
@@ -102,7 +102,8 @@ auth_header() {
 
 # Replaces every scalar with its type name. Object keys survive (they are the
 # schema); values never do. Arrays collapse to the shape of their first element,
-# with the observed length recorded separately in the report.
+# so a field that happens to be null in record one shows as "null" rather than
+# its real nullable type — do not generate types from those without checking.
 SHAPE_FILTER='
   def shape:
     if   type == "object" then with_entries(.value |= shape)
@@ -118,6 +119,9 @@ note "gateway ${BASE}  tenant ${JAMF_TENANT_ID:0:8}…"
   printf 'Gateway: `%s`\n\n' "$BASE"
   printf 'Read-only integration. `403` means the path is correct and the scope is absent —\n'
   printf 'that is a successful path resolution, not a failure.\n\n'
+  printf 'Tenant identifiers and result counts are deliberately absent: this file is\n'
+  printf 'committed and shared externally. The envelope column lists response *key names*,\n'
+  printf 'which is the part that matters for writing a pagination helper.\n\n'
   printf '| group | resolved segment | status | url | notes |\n'
   printf '|---|---|---|---|---|\n'
 } > "$REPORT"
@@ -140,9 +144,12 @@ for probe in "${PROBES[@]}"; do
         cp "$body_file" "$RAW_DIR/${group}.json"
         jq "$SHAPE_FILTER" < "$body_file" > "$SHAPE_DIR/${group}.json" 2>/dev/null \
           || printf '"unparseable"\n' > "$SHAPE_DIR/${group}.json"
-        count="$(jq -r '(.results // .items // . ) | if type=="array" then length else 1 end' < "$body_file" 2>/dev/null || echo '?')"
-        total="$(jq -r '.totalCount // "n/a"' < "$body_file" 2>/dev/null || echo 'n/a')"
-        note_text="returned ${count} item(s), totalCount ${total}"
+        # Record the envelope's KEY NAMES, never the values. Which paging fields
+        # exist is the engineering signal; item counts are fleet intel and this
+        # report is committed and shared externally.
+        envelope="$(jq -r '[keys_unsorted[] | select(. != "results" and . != "items")] | join(", ")' \
+          < "$body_file" 2>/dev/null || echo '?')"
+        note_text="envelope: \`${envelope}\`"
         rm -f "$body_file"; break ;;
       403)
         # Path is right; scope is missing. Record and stop probing candidates.
