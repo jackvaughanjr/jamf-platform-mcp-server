@@ -87,6 +87,13 @@ API conversationally before deciding which calls deserve typed tools.
 
 ## Design notes
 
+- **The service segment is not the scope prefix.** Blueprints requires the scope
+  `read:pro:blueprints` but lives at `/api/blueprints/...`. Deriving the URL from
+  the scope name produces `/api/pro/...` and a 404 that reads like a permissions
+  failure. Confirm each service segment against the reference before adding a
+  tool — `scripts/fetch-blueprints.sh` is the known-good reference for Blueprints.
+- **List endpoints page with `page` and `page-size`, and `page` is 0-based.**
+  Responses carry `totalCount` and `results[]`.
 - **All gateway concerns live in `src/platform-client.ts`.** The API is in beta;
   when the contract shifts there should be one file to fix.
 - **Token caching handles the 900-second lifetime** with a 60-second refresh

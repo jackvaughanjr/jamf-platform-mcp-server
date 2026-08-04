@@ -89,12 +89,14 @@ server.registerTool(
   'listBlueprints',
   {
     title: 'List blueprints',
-    description: 'List Blueprints for the configured tenant. Requires the read:pro:blueprints scope.',
+    description:
+      'List Blueprints for the configured tenant. Requires the read:pro:blueprints scope — ' +
+      'note the scope prefix is "pro" while the URL service segment is "blueprints".',
     inputSchema: {},
   },
   async () => {
     try {
-      return asContent(await client.request({ service: 'pro', resource: 'blueprints' }));
+      return asContent(await client.request({ service: 'blueprints', resource: 'blueprints' }));
     } catch (error) {
       return asError(error);
     }

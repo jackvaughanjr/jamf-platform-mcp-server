@@ -24,13 +24,26 @@ interface CachedToken {
 }
 
 export interface RequestOptions {
-  /** Gateway service segment, e.g. "pro". */
+  /**
+   * Gateway service segment, e.g. "blueprints".
+   *
+   * Do NOT derive this from the permission scope. Blueprints requires the scope
+   * `read:pro:blueprints` but lives at /api/blueprints/... — the "pro" is a
+   * scope prefix, not a URL segment. Getting this wrong yields a 404 that reads
+   * like a permissions failure and costs an hour. Confirm each service segment
+   * against the reference (or scripts/fetch-blueprints.sh) before adding a tool.
+   */
   service: string;
   /** Resource path below the tenant segment, e.g. "blueprints". */
   resource: string;
   /** API version segment. Defaults to "v1". */
   version?: string;
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  /**
+   * Query string parameters. Gateway list endpoints page with `page` and
+   * `page-size`, and `page` is 0-based — the first page is `page=0`, not 1.
+   * List responses carry `totalCount` and `results[]`.
+   */
   query?: Record<string, string | number | boolean | undefined>;
   body?: unknown;
 }
