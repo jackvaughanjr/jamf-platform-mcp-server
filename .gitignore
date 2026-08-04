@@ -12,6 +12,11 @@ dist/
 blueprints.json
 *.blueprints.json
 
+# Raw gateway responses from discovery runs: device serials, usernames, email
+# addresses, IPs, per-device application inventory. Only the type-only shapes
+# under fixtures/shapes/ are committed.
+fixtures/raw/
+
 .DS_Store
 *.tsbuildinfo
 .claude/settings.local.json

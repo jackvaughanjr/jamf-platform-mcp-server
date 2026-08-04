@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+#
+# Reject any staged file that .gitignore covers.
+#
+# Nothing ignored can reach the index by accident — `git add` skips ignored
+# paths silently. The only ways in are `git add -f` / `--force`, or an explicit
+# `git update-index --add`. This repo forbids both, because the ignore list
+# guards live gateway responses containing device serials, usernames, email
+# addresses, IPs, and per-device application inventory, plus the OAuth client
+# secret. A gitignore entry stops accidents; this hook stops the deliberate
+# override that defeats it.
+#
+# If you genuinely need to commit something currently ignored, change
+# .gitignore in its own commit so the decision is reviewable. Do not force-add.
+#
+set -euo pipefail
+
+staged="$(git diff --cached --name-only --diff-filter=ACM)"
+[ -n "$staged" ] || exit 0
+
+# --no-index is REQUIRED and not optional polish: by default check-ignore
+# consults the index, so a file that is already staged reports as "not ignored"
+# and the hook silently passes exactly the case it exists to catch.
+# check-ignore exits 1 when nothing matches, which is the common (good) case.
+forced="$(printf '%s\n' "$staged" | git check-ignore --no-index --stdin || true)"
+[ -n "$forced" ] || exit 0
+
+{
+  printf '\033[31merror:\033[0m refusing to commit gitignored file(s):\n'
+  printf '  %s\n' $forced
+  printf '\n'
+  printf 'These are ignored, so they were force-added. This repo does not allow\n'
+  printf '`git add -f` — the ignore list guards live device data and credentials.\n'
+  printf '\n'
+  printf 'To unstage:  git restore --staged %s\n' "$(printf '%s' "$forced" | head -1)"
+  printf 'If the file genuinely belongs in git, edit .gitignore in its own commit.\n'
+} >&2
+
+exit 1

@@ -16,6 +16,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true",
     "build": "tsc && chmod +x dist/index.js",
     "dev": "tsx src/index.ts",
     "serve": "node dist/index.js",
