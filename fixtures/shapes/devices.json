@@ -1,0 +1,25 @@
+{
+  "results": [
+    {
+      "id": "string",
+      "name": "string",
+      "model": "string",
+      "modelIdentifier": "string",
+      "serialNumber": "string",
+      "lastInventoryUpdateTime": "string",
+      "lastCheckInTime": "string",
+      "lastContactTime": "null",
+      "operatingSystemVersion": "string",
+      "userId": "string",
+      "enrollmentType": "string",
+      "lastEnrollmentTime": "string",
+      "managed": "boolean"
+    }
+  ],
+  "page": "number",
+  "pageSize": "number",
+  "totalCount": "number",
+  "totalPages": "number",
+  "hasNext": "boolean",
+  "hasPrevious": "boolean"
+}

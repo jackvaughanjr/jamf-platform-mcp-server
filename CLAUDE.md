@@ -46,6 +46,29 @@ Diagnostic shorthand when a call fails:
 - **404** — wrong service segment or resource
 - **403** — right path, missing scope
 
+### Confirmed service segments
+
+Resolved against a live tenant on 2026-08-04 (`fixtures/discovery-report.md`):
+
+| group | segment | status |
+|---|---|---|
+| Blueprints | `blueprints` | confirmed 200 |
+| Devices | `devices` | confirmed 200 |
+| Device Groups | `device-groups` | confirmed 200 |
+| Compliance Benchmarks | unresolved | 404 on all candidates |
+| Declaration Reporting | unresolved | 404 on all candidates |
+
+So far the segment equals the API group name in kebab-case — but that is three
+data points, not a rule. Confirm before relying on it.
+
+### Pagination envelopes are not uniform
+
+Devices and Device Groups return a full envelope:
+`page`, `pageSize`, `totalCount`, `totalPages`, `hasNext`, `hasPrevious`.
+
+Blueprints returns **only** `results` and `totalCount` — no `hasNext`. Any
+generic pagination helper must handle both, and must not assume `hasNext` exists.
+
 ## Stdout is the MCP transport
 
 Only JSON-RPC may go to stdout. Logs go to stderr. `dotenv` is loaded with

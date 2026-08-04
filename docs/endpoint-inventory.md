@@ -16,6 +16,38 @@ empirically; results land in `fixtures/discovery-report.md`.
 Legend: **R** = reachable with read-only scopes · **W** = write, blocked by a
 read-only integration.
 
+## Discovery results (2026-08-04)
+
+| group | segment | outcome |
+|---|---|---|
+| Blueprints | `blueprints` | **200** — confirmed |
+| Devices | `devices` | **200** — confirmed |
+| Device Groups | `device-groups` | **200** — confirmed |
+| Blueprint components | `blueprints` | **403** — path resolves, scope absent |
+| Compliance Benchmarks | — | **404** on `compliance-benchmarks`, `benchmarks`, `compliance` |
+| Declaration Reporting | — | **404** on `declaration-reporting`, `declarations` |
+
+Three confirmed segments all equal the group name in kebab-case. Two open items:
+
+**The probe varied only the service segment, not the resource.** If the resource
+name is also wrong, every service candidate returns 404 and the group looks
+unresolvable when only one half of the pair is off. Compliance Benchmarks was
+probed as `.../{service}/v1/tenant/{id}/benchmarks`; the docs describe the
+operation as "list tenant benchmarks", so the resource may differ. Next pass
+should probe the service × resource matrix, not just service.
+
+**Declaration Reporting may not take a tenant segment at all.** Its documented
+paths are `/v1/devices/{deviceId}/declarations` and
+`/v1/declarations/{declarationIdentifier}/devices` — no `tenant/{tenantId}`,
+unlike every other group. The probe inserts the tenant segment unconditionally,
+so a 404 is the expected result whether or not the segment name is right. It also
+has no tenant-level list endpoint: both paths require an ID, so it needs a device
+ID sourced from the Devices response.
+
+**Blueprint components returned 403, which is a scope gap, not a path problem.**
+The read-only integration holds `read:pro:blueprints` (list works) but not
+whatever scope `components` requires. Worth adding if component metadata matters.
+
 ## Devices — segment candidate: `devices`
 
 | | Method | Path |

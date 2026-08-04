@@ -160,13 +160,18 @@ for probe in "${PROBES[@]}"; do
     esac
   done
 
+  # The report is a committed artifact, so the tenant ID — a live infrastructure
+  # identifier — is masked out of it. The resolved segment is the useful part.
+  report_path="${final_url#$BASE}"
+  report_path="${report_path//$JAMF_TENANT_ID/\{TENANT\}}"
+
   if [ -z "$resolved" ]; then
     warn "${group}: unresolved (tried: ${candidates})"
     printf '| `%s` | — | %s | `%s` | tried: %s |\n' \
-      "$group" "$final_status" "${final_url#$BASE}" "$candidates" >> "$REPORT"
+      "$group" "$final_status" "$report_path" "$candidates" >> "$REPORT"
   else
     printf '| `%s` | `%s` | %s | `%s` | %s |\n' \
-      "$group" "$resolved" "$final_status" "${final_url#$BASE}" "$note_text" >> "$REPORT"
+      "$group" "$resolved" "$final_status" "$report_path" "$note_text" >> "$REPORT"
   fi
 done
 

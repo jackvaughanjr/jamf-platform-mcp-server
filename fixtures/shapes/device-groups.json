@@ -1,0 +1,18 @@
+{
+  "results": [
+    {
+      "id": "string",
+      "name": "string",
+      "description": "string",
+      "deviceType": "string",
+      "groupType": "string",
+      "memberCount": "number"
+    }
+  ],
+  "page": "number",
+  "pageSize": "number",
+  "totalCount": "number",
+  "totalPages": "number",
+  "hasNext": "boolean",
+  "hasPrevious": "boolean"
+}

@@ -11,8 +11,13 @@ dist/
 
 # Gateway responses. Blueprint detail carries full device configuration —
 # MDM declarations, restrictions, scope. Never commit it.
-blueprints.json
-*.blueprints.json
+#
+# Anchored with a leading slash on purpose: unanchored, `blueprints.json` also
+# matches fixtures/shapes/blueprints.json, silently excluding the type-only
+# schema that IS safe to commit. These patterns target the raw dump that
+# scripts/fetch-blueprints.sh writes to the repo root.
+/blueprints.json
+/*.blueprints.json
 
 # Raw gateway responses from discovery runs: device serials, usernames, email
 # addresses, IPs, per-device application inventory. Only the type-only shapes

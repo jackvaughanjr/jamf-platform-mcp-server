@@ -1,0 +1,19 @@
+{
+  "results": [
+    {
+      "id": "string",
+      "name": "string",
+      "description": "null",
+      "created": "string",
+      "updated": "string",
+      "deploymentState": {
+        "state": "string",
+        "lastDeployment": {
+          "started": "string",
+          "state": "string"
+        }
+      }
+    }
+  ],
+  "totalCount": "number"
+}
