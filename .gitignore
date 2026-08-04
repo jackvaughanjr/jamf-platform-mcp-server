@@ -7,6 +7,11 @@ dist/
 .env.*
 !.env.example
 
+# Gateway responses. Blueprint detail carries full device configuration —
+# MDM declarations, restrictions, scope. Never commit it.
+blueprints.json
+*.blueprints.json
+
 .DS_Store
 *.tsbuildinfo
 .claude/settings.local.json
