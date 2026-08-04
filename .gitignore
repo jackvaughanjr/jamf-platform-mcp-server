@@ -6,6 +6,8 @@ dist/
 .env
 .env.*
 !.env.example
+# .env.op holds op:// references, not secrets — safe and intended to be tracked.
+!.env.op
 
 # Gateway responses. Blueprint detail carries full device configuration —
 # MDM declarations, restrictions, scope. Never commit it.
