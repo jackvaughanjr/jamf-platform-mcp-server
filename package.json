@@ -1,0 +1,45 @@
+{
+  "name": "jamf-platform-mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server for the Jamf Platform API Gateway, using OAuth 2.0 client-credentials authentication",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "jamf-platform-mcp-server": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc && chmod +x dist/index.js",
+    "dev": "tsx src/index.ts",
+    "serve": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "inspector": "npx @modelcontextprotocol/inspector dist/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "jamf",
+    "jamf-platform-api",
+    "mdm",
+    "apple",
+    "device-management"
+  ],
+  "author": "Jack Vaughan, Jr.",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "dotenv": "^17.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.8.0"
+  }
+}

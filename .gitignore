@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.log
+
+# Secrets — the client_secret is shown exactly once at creation. Never commit it.
+.env
+.env.*
+!.env.example
+
+.DS_Store
+*.tsbuildinfo
+.claude/settings.local.json
