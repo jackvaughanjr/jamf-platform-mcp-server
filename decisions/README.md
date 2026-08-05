@@ -52,3 +52,6 @@ The distinction matters because ADRs are immutable and findings are not.
   Classic (`proclassic`) and Declaration Reporting (`ddm/report`), whose paths were
   published all along; treat Compliance Benchmarks as blocked by a fault on Jamf's
   side. Read the endpoint reference page before probing.
+- [JPM-0007](JPM-0007-write-path-posture.md): Provision no read-write integration;
+  never grant this server a scope that can erase or unmanage a device; if reversible
+  writes are ever enabled, they go through typed tools and never the passthrough.
