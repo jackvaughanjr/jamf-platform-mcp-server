@@ -56,6 +56,36 @@ Diagnostic shorthand when a call fails:
 - **403** — the route exists but refuses this caller. **Cause unknown — do not
   read this as "missing scope."**
 
+### Which service segments the gateway hosts
+
+Enumerated 2026-08-04 by probing a route that cannot exist against each
+candidate — 403 BAD_PERMISSIONS means the segment is real, 404 means it is not.
+This works without knowing any valid route inside a segment.
+
+**Hosted:** `blueprints`, `devices`, `device-groups`, `pro`, `device-actions`
+
+**Refused wholesale:** `compliance-benchmarks` — returns a gateway-level 403 even
+for a nonsense route, so the entire segment is blocked rather than a particular
+path. No route under it will work until that changes; do not spend probes there.
+
+**Not hosted:** `classic`, `jamf-pro-classic`, `jssresource`, `jamf-pro`,
+`jamf-pro-api`, `declarations`, `declaration-reporting`,
+`device-management-actions`, `protect`, `security-cloud`, `benchmarks`,
+`compliance`, `mscp`, `users`, `computers`, `mobile-devices`, `inventory`,
+`patch`, `policies`.
+
+Two consequences worth holding onto:
+
+**Device Management Actions is `device-actions`**, not the group name
+`device-management-actions`, which is not hosted. Segment names are shorter than
+the documentation's group headings.
+
+**Classic has no segment of its own**, so it must be served under `pro`. Its doc
+slugs give the shape: `creategroupbyid_tenant_tenantid_accounts_groupname_name`
+encodes `/tenant/{tenantid}/accounts/groupname/{name}` — **no `/JSSResource/`
+prefix and no version segment.** `protect` and `security-cloud` not being hosted
+matches Jamf's roadmap, which lists them as still to come.
+
 ### What each status actually means — settled by negative control
 
 Two control probes, run 2026-08-04, decided this:

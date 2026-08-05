@@ -131,16 +131,23 @@ PROBES=(
   # CONFIRMED: segment pro, style tenant. Unlocks the 300+ Jamf Pro API surface.
   "jamf-pro|pro|account-groups|tenant"
 
-  # `devices` is listed BEFORE `pro` deliberately: the previous run aborted the
-  # sweep on pro's BAD_PERMISSIONS and never reached devices, which is the
-  # segment the documented path /v1/devices/{deviceId}/declarations most
-  # resembles. No collection endpoint exists, so {DEVICE} borrows a real ID.
-  "declaration-reporting|devices pro declaration-reporting declarations|devices/{DEVICE}/declarations declarations|tenant flat"
+  # Service enumeration proved `declarations` and `declaration-reporting` are NOT
+  # hosted segments, so this lives inside `devices` or `pro`. Its doc slugs are
+  # operation names — getdevicereport, getdevicechannels, getdeclarationreport —
+  # so these are the resource names those imply, applying the lesson from
+  # blueprint-components that names are fully qualified.
+  "declaration-reporting|devices pro|device-channels declaration-reports device-reports device-declarations|tenant flat"
 
-  # Classic: 500+ endpoints, /JSSResource/{resource}, no version. The bare and
-  # tenant-scoped forms are both documented; the previous run only ever tried
-  # pro x tenant-scoped before aborting, so the rest is still unexplored.
-  "jamf-pro-classic|pro classic jamf-pro-classic jssresource|/JSSResource/buildings /JSSResource/tenant/{TENANT}/buildings /JSSResource/categories|raw"
+  # Classic: `classic`, `jamf-pro-classic` and `jssresource` are all NOT hosted,
+  # so Classic must be served under `pro`. Its doc slugs settle the shape —
+  # creategroupbyid_tenant_tenantid_accounts_groupname_name encodes
+  # /tenant/{tenantid}/accounts/groupname/{name}, i.e. NO /JSSResource/ prefix
+  # and NO version segment. Every earlier probe carried a prefix that does not
+  # exist. raw style is the only one that can express this.
+  "jamf-pro-classic|pro|/tenant/{TENANT}/buildings /tenant/{TENANT}/categories /tenant/{TENANT}/accounts|raw"
+
+  # Same Classic resources but versioned, in case the gateway does add /v1.
+  "jamf-pro-classic-versioned|pro|buildings categories accounts|tenant"
 )
 
 # ── token, refreshed proactively (gateway tokens are ~900s) ──────────────────
@@ -213,12 +220,20 @@ fi
 # 404 under one the gateway does not host. So probing a deliberately bogus route
 # against each candidate name tells us which segments exist, without knowing a
 # single valid route inside them.
+# Confirmed hosted on 2026-08-04: blueprints, devices, device-groups, pro,
+# device-actions. compliance-benchmarks answers 403 even for a bogus route, so
+# the gateway refuses that whole segment rather than a particular path.
+# Everything else below returned 404 — including classic, jssresource,
+# declarations, declaration-reporting, protect and security-cloud.
 SERVICE_CANDIDATES=(
-  blueprints devices device-groups pro compliance-benchmarks
-  declarations declaration-reporting device-management-actions device-actions
+  blueprints devices device-groups pro compliance-benchmarks device-actions
+  declarations declaration-reporting device-management-actions
   classic jamf-pro jamf-pro-classic jamf-pro-api jssresource
   protect security-cloud benchmarks compliance mscp
   users computers mobile-devices inventory patch policies
+  # Second sweep: plausible names not yet tried.
+  ddm declarative device-declarations reporting declaration-reports
+  jamf-protect jamf-security-cloud settings self-service
 )
 
 SERVICE_TABLE=""

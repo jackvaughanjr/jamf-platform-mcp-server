@@ -19,6 +19,41 @@ Tenant identifiers and result counts are deliberately absent: this file is
 committed and shared externally. The envelope column lists response *key names*,
 which is the part that matters for writing a pagination helper.
 
+## Service segments the gateway hosts
+
+Determined by probing a route that cannot exist against each candidate:
+403 BAD_PERMISSIONS means the segment is real, 404 means it is not.
+
+| candidate | hosted |
+|---|---|
+| `blueprints` | yes |
+| `devices` | yes |
+| `device-groups` | yes |
+| `pro` | yes |
+| `compliance-benchmarks` | ? (403) |
+| `declarations` | no |
+| `declaration-reporting` | no |
+| `device-management-actions` | no |
+| `device-actions` | yes |
+| `classic` | no |
+| `jamf-pro` | no |
+| `jamf-pro-classic` | no |
+| `jamf-pro-api` | no |
+| `jssresource` | no |
+| `protect` | no |
+| `security-cloud` | no |
+| `benchmarks` | no |
+| `compliance` | no |
+| `mscp` | no |
+| `users` | no |
+| `computers` | no |
+| `mobile-devices` | no |
+| `inventory` | no |
+| `patch` | no |
+| `policies` | no |
+
+## Routes
+
 | group | resolved segment | status | url | notes |
 |---|---|---|---|---|
 | `_control-bogus-route` | — | 403 | `/api/devices/v1/tenant/{TENANT}/zz-no-such-route-control` | 1 combos tried; services: devices |
