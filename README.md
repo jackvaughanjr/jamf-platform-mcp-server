@@ -27,13 +27,16 @@ versions may break.
 
 ## Provenance
 
-Seeded from [dbankscard/jamf-mcp-server](https://github.com/dbankscard/jamf-mcp-server)
-(MIT) — a mature community MCP server for Jamf Pro. Its **tool taxonomy** informed
-this project, particularly the compound-tool idea of answering a whole fleet
-question in one call rather than making a model loop over per-device requests. No
-code was copied; the client here is written against a different API with a
-different auth model. The original copyright notice is retained in
-[LICENSE](LICENSE) as the MIT licence requires. Reasoning:
+**This is an independent project, not a fork or a derivative.** No shared git
+history, no upstream remote, and no copied code.
+
+It is worth naming an influence, though: evaluating
+[dbankscard/jamf-mcp-server](https://github.com/dbankscard/jamf-mcp-server) (MIT)
+is what surfaced the compound-tool idea used here — answering a whole fleet
+question in one call rather than making a model loop over per-device requests.
+That is a design idea, freely reusable and not subject to any licence term, so
+this credit is courtesy rather than obligation and carries no requirement onward
+to anyone using this project. Reasoning:
 [JPM-0002](decisions/JPM-0002-new-repo-not-a-fork.md).
 
 Related work worth knowing about:
@@ -187,5 +190,4 @@ tenant, since no test can confirm the gateway's actual behaviour.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Retains the original copyright notice from
-`dbankscard/jamf-mcp-server` alongside this project's.
+MIT — see [LICENSE](LICENSE).

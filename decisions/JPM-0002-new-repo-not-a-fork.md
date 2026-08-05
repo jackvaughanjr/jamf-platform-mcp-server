@@ -2,6 +2,14 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-04
+- **Corrected:** 2026-08-05 — the original text said to carry the upstream
+  copyright notice in `LICENSE`. That was wrong: no code was copied, so MIT
+  imposes no such obligation, and asserting derivation where none exists misleads
+  downstream users into thinking they must propagate the notice. Verified
+  empirically — one line is shared between the two codebases, an unavoidable MCP
+  SDK import. The decision below is unchanged; only the attribution mechanism is.
+  Edited in place rather than superseded because the record had no external
+  readers.
 
 ## Context
 
@@ -24,8 +32,13 @@ closed unmerged, #10 and #11 open with no movement for roughly three weeks.
 Start a new repository. Port the **tool design** — the taxonomy and the
 compound-tool idea — and write fresh code against the gateway.
 
-Retain the original MIT copyright notice in `LICENSE` alongside ours, and state
-the lineage in `README.md`.
+Credit the influence in `README.md` as courtesy. `LICENSE` carries this project's
+copyright only, because nothing here is a derivative work: no shared git history,
+no upstream remote, and no copied code. Ideas and API design are not copyrightable,
+so no licence term reaches this project or anyone using it.
+
+Should actual files be lifted from upstream later, that changes — the notice would
+then be required, and this record would need superseding.
 
 ## Alternatives considered
 
@@ -53,8 +66,8 @@ freely available under a permissive licence.
 
 - Own history, own identity, no fork badge, and a clean slate for a different
   auth model.
-- Attribution is unambiguous, and `LICENSE` is already correct should actual files
-  be lifted later.
+- `LICENSE` states exactly who holds copyright over this code, with no implied
+  obligations passed to anyone using it.
 
 ### Negative
 
@@ -64,8 +77,9 @@ freely available under a permissive licence.
 
 ### Neutral
 
-- The original copyright line sits above ours in `LICENSE` rather than replacing
-  it. Replacing it would have turned a compliant port into a licence violation.
+- The credit lives in `README.md`, not `LICENSE`. That is the right home for
+  "this influenced us"; `LICENSE` is for who holds copyright over the code that is
+  actually here.
 
 ## References
 

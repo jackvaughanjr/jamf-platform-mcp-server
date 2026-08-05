@@ -37,9 +37,9 @@ The distinction matters because ADRs are immutable and findings are not.
 - [JPM-0001](JPM-0001-target-platform-api-gateway.md): Build against the Jamf
   Platform API Gateway rather than the Jamf Pro and Classic APIs directly, so the
   safety boundary can live in scoped credentials instead of application logic.
-- [JPM-0002](JPM-0002-new-repo-not-a-fork.md): Start a new repository rather than
-  fork `dbankscard/jamf-mcp-server`, retaining MIT attribution for the ported
-  design.
+- [JPM-0002](JPM-0002-new-repo-not-a-fork.md): Build an independent project rather
+  than fork the prior art; credit the design influence in `README.md`, with
+  `LICENSE` carrying this project's copyright alone since nothing is derivative.
 - [JPM-0003](JPM-0003-passthrough-plus-selective-typed-tools.md): Expose one
   authenticated passthrough tool plus selectively-added typed tools, rather than
   one tool per endpoint.
