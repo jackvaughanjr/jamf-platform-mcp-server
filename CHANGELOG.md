@@ -28,6 +28,15 @@ guarantee.
   and per-item failures are reported rather than failing the run.
 - `src/automations.ts` — pure scanning and policy-cadence helpers, mutation-checked.
 
+### Fixed
+
+- **`findExpensiveAutomations` reported a false all-clear on its first live run.**
+  Jamf Pro Classic's JSON wraps a collection in the plural key (`{"scripts": […]}`)
+  while the reference pages document the singular XML element (`script`), so the
+  lookup missed and every list came back empty — reported as "scanned 0, found no
+  problems" with no error. An audit that cannot read the response now throws and
+  names the keys actually present, rather than returning a clean bill of health.
+
 ## [0.1.0] — 2026-08-05
 
 First release.

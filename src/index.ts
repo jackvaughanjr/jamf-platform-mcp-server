@@ -7,6 +7,8 @@ import { z } from 'zod';
 
 import {
   classifyPolicyCadence,
+  extractClassicDetail,
+  extractClassicList,
   mapWithConcurrency,
   scanForExpensiveCommands,
   type PolicyGeneral,
@@ -492,38 +494,46 @@ server.registerTool(
     const parallel = concurrency ?? 6;
     const errors: Record<string, string> = {};
 
-    /** Classic list endpoints wrap results in a named key and are not paginated. */
-    async function classicList<T>(resource: string, key: string): Promise<T[]> {
+    /**
+     * Classic list endpoints are not paginated and wrap results in the PLURAL key
+     * in JSON, though the reference pages document the singular XML element. Both
+     * are tried, and an unreadable shape throws rather than yielding an empty
+     * list — see extractClassicList.
+     */
+    async function classicList<T>(resource: string, keys: string[]): Promise<T[]> {
       const body = await client.request<Record<string, unknown>>({
         service: 'proclassic',
         rawPath: `/tenant/${config.tenantId}/${resource}`,
       });
-      const value = body?.[key];
-      return Array.isArray(value) ? (value as T[]) : [];
+      return extractClassicList<T>(body, keys).items;
     }
 
-    async function classicDetail<T>(resource: string, id: number | string, key: string): Promise<T | undefined> {
+    async function classicDetail<T>(
+      resource: string,
+      id: number | string,
+      keys: string[],
+    ): Promise<T | undefined> {
       const body = await client.request<Record<string, unknown>>({
         service: 'proclassic',
         rawPath: `/tenant/${config.tenantId}/${resource}/id/${id}`,
       });
-      return body?.[key] as T | undefined;
+      return extractClassicDetail<T>(body, keys);
     }
 
     try {
       const [scriptStubs, eaStubs, policyStubs] = await Promise.all([
-        classicList<{ id: number; name: string }>('scripts', 'script').catch((e) => {
+        classicList<{ id: number; name: string }>('scripts', ['scripts', 'script']).catch((e) => {
           errors.scripts = legError(e);
           return [];
         }),
         classicList<{ id: number; name: string; enabled?: boolean }>(
           'computerextensionattributes',
-          'computer_extension_attribute',
+          ['computer_extension_attributes', 'computer_extension_attribute'],
         ).catch((e) => {
           errors.extensionAttributes = legError(e);
           return [];
         }),
-        classicList<{ id: number; name: string }>('policies', 'policy').catch((e) => {
+        classicList<{ id: number; name: string }>('policies', ['policies', 'policy']).catch((e) => {
           errors.policies = legError(e);
           return [];
         }),
@@ -535,7 +545,7 @@ server.registerTool(
           const policy = await classicDetail<{
             general?: PolicyGeneral;
             scripts?: Array<{ id?: number; name?: string }>;
-          }>('policies', stub.id, 'policy');
+          }>('policies', stub.id, ['policy']);
           return { stub, general: policy?.general, scripts: policy?.scripts ?? [] };
         } catch (error) {
           errors[`policy:${stub.id}`] = legError(error);
@@ -561,7 +571,7 @@ server.registerTool(
           const script = await classicDetail<{ name?: string; script_contents?: string }>(
             'scripts',
             stub.id,
-            'script',
+            ['script'],
           );
           const matches = scanForExpensiveCommands(script?.script_contents);
           if (matches.length === 0) return null;
@@ -592,7 +602,7 @@ server.registerTool(
             name?: string;
             enabled?: boolean;
             input_type?: { type?: string; script?: string };
-          }>('computerextensionattributes', stub.id, 'computer_extension_attribute');
+          }>('computerextensionattributes', stub.id, ['computer_extension_attribute']);
           const matches = scanForExpensiveCommands(ea?.input_type?.script);
           if (matches.length === 0) return null;
           return {

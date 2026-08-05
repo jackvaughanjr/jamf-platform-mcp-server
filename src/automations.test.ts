@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   classifyPolicyCadence,
+  extractClassicDetail,
+  extractClassicList,
   mapWithConcurrency,
   scanForExpensiveCommands,
 } from './automations.js';
@@ -101,6 +103,51 @@ describe('classifyPolicyCadence', () => {
     expect(c.frequency).toBe('unknown');
     expect(c.triggers).toEqual([]);
     expect(c.highFrequency).toBe(false);
+  });
+});
+
+describe('extractClassicList', () => {
+  // Classic JSON wraps in the PLURAL key; the reference pages document the
+  // singular XML element. Reading the docs literally finds nothing.
+  it('prefers the plural JSON key', () => {
+    const { items, matchedKey } = extractClassicList<{ id: number }>(
+      { size: 2, scripts: [{ id: 1 }, { id: 2 }] },
+      ['scripts', 'script'],
+    );
+    expect(items).toHaveLength(2);
+    expect(matchedKey).toBe('scripts');
+  });
+
+  it('falls back to the singular key', () => {
+    expect(extractClassicList({ script: [{ id: 1 }] }, ['scripts', 'script']).matchedKey).toBe('script');
+  });
+
+  it('returns an empty list for a genuinely empty collection', () => {
+    expect(extractClassicList({ scripts: [] }, ['scripts', 'script']).items).toEqual([]);
+  });
+
+  // The bug this function exists to prevent: an unreadable shape reported as
+  // "scanned 0, found nothing" is a false all-clear from an auditing tool.
+  it('throws on an unrecognised shape and names the keys actually present', () => {
+    expect(() => extractClassicList({ unexpected: [1], other: 2 }, ['scripts', 'script'])).toThrow(
+      /unexpected Classic list shape.*unexpected, other/s,
+    );
+  });
+
+  it('throws rather than returning empty for null or a non-array value', () => {
+    expect(() => extractClassicList(null, ['scripts'])).toThrow(/no array found/);
+    expect(() => extractClassicList({ scripts: 'not-an-array' }, ['scripts'])).toThrow(/no array found/);
+  });
+});
+
+describe('extractClassicDetail', () => {
+  it('unwraps the singular detail key', () => {
+    expect(extractClassicDetail<{ id: number }>({ script: { id: 7 } }, ['script'])).toEqual({ id: 7 });
+  });
+
+  it('returns undefined when no key matches, leaving the caller to report it', () => {
+    expect(extractClassicDetail({ other: 1 }, ['script'])).toBeUndefined();
+    expect(extractClassicDetail(null, ['script'])).toBeUndefined();
   });
 });
 

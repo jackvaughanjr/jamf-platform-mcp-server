@@ -149,6 +149,51 @@ export function classifyPolicyCadence(general: PolicyGeneral | null | undefined)
 }
 
 /**
+ * Pulls the array out of a Jamf Pro Classic list response.
+ *
+ * Classic's **JSON** wraps a collection in the PLURAL key — `{"scripts": [...]}` —
+ * while the reference pages describe the XML schema, which names the repeated
+ * singular element (`script`) plus a `size` count. Reading the docs literally and
+ * looking for the singular key finds nothing.
+ *
+ * Throws when no candidate key matches, listing the keys actually present. An
+ * earlier version returned an empty array instead, which turned a shape mismatch
+ * into "scanned 0 items, found no problems" — a false all-clear from a tool whose
+ * entire job is finding problems. An audit that cannot read the response must say
+ * so, not report a clean bill of health.
+ */
+export function extractClassicList<T>(
+  body: Record<string, unknown> | null | undefined,
+  candidateKeys: string[],
+): { items: T[]; matchedKey: string } {
+  for (const key of candidateKeys) {
+    const value = body?.[key];
+    if (Array.isArray(value)) return { items: value as T[], matchedKey: key };
+  }
+  const present = body && typeof body === 'object' ? Object.keys(body) : [];
+  throw new Error(
+    `unexpected Classic list shape: no array found under ${candidateKeys.join(' / ')}. ` +
+      `Top-level keys present: ${present.length > 0 ? present.join(', ') : '(none)'}.`,
+  );
+}
+
+/**
+ * Same problem for a Classic detail response, which wraps in the singular key.
+ * Returns undefined rather than throwing — a detail body may legitimately lack the
+ * wrapper on some resources, and the caller reports per-item failures anyway.
+ */
+export function extractClassicDetail<T>(
+  body: Record<string, unknown> | null | undefined,
+  candidateKeys: string[],
+): T | undefined {
+  for (const key of candidateKeys) {
+    const value = body?.[key];
+    if (value !== undefined && value !== null) return value as T;
+  }
+  return undefined;
+}
+
+/**
  * Runs `worker` over `items` with at most `concurrency` in flight.
  *
  * Auditing every script, extension attribute and policy means one detail request
