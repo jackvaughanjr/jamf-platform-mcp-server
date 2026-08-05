@@ -145,15 +145,20 @@ auth_header() {
 # endpoint, so probing it as a collection can only ever 404. Borrow an ID from
 # the devices probe, which runs earlier in the table.
 DEVICE_ID=""
-get_device_id() {
-  if [ -z "$DEVICE_ID" ]; then
-    if [ "${DRY_RUN:-}" = "1" ]; then
-      DEVICE_ID="{DEVICE}"
-    elif [ -f "$RAW_DIR/devices.json" ]; then
-      DEVICE_ID="$(jq -r '.results[0].id // empty' < "$RAW_DIR/devices.json" 2>/dev/null || true)"
-    fi
+# Sets the global DEVICE_ID in place and prints nothing.
+#
+# It must NOT be called via command substitution: `x="$(resolve_device_id)"`
+# runs it in a subshell, the global assignment dies with that subshell, and the
+# report-masking guard below then sees an empty DEVICE_ID and silently leaks the
+# real device ID into a committed file. That bug shipped once already.
+resolve_device_id() {
+  [ -n "$DEVICE_ID" ] && return 0
+  if [ "${DRY_RUN:-}" = "1" ]; then
+    DEVICE_ID="{DEVICE}"
+  elif [ -f "$RAW_DIR/devices.json" ]; then
+    DEVICE_ID="$(jq -r '.results[0].id // empty' < "$RAW_DIR/devices.json" 2>/dev/null || true)"
   fi
-  printf '%s' "$DEVICE_ID"
+  return 0
 }
 
 # Replaces every scalar with its type name. Object keys survive (they are the
@@ -201,12 +206,13 @@ for probe in "${PROBES[@]}"; do
     probe_resource="$resource"
     case "$probe_resource" in
       *'{DEVICE}'*)
-        dev="$(get_device_id)"
-        if [ -z "$dev" ]; then
+        # Called bare, not in $( ), so DEVICE_ID persists for report masking.
+        resolve_device_id
+        if [ -z "$DEVICE_ID" ]; then
           warn "${group}: skipping '${resource}' — no device id available"
           continue
         fi
-        probe_resource="${probe_resource//\{DEVICE\}/$dev}"
+        probe_resource="${probe_resource//\{DEVICE\}/$DEVICE_ID}"
         ;;
     esac
     probe_resource="${probe_resource//\{TENANT\}/$JAMF_TENANT_ID}"
@@ -272,6 +278,11 @@ for probe in "${PROBES[@]}"; do
   if [ -n "$DEVICE_ID" ] && [ "$DEVICE_ID" != "{DEVICE}" ]; then
     report_path="${report_path//$DEVICE_ID/\{DEVICE\}}"
   fi
+  # Catch-all: any surviving UUID becomes {ID}. The named masks above give nicer
+  # labels, but they only cover identifiers this script knows it substituted. A
+  # path could embed an ID from anywhere, so nothing UUID-shaped gets through.
+  report_path="$(printf '%s' "$report_path" \
+    | sed -E 's/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/{ID}/g')"
 
   if [ -z "$resolved" ]; then
     warn "${group}: unresolved after ${attempts} attempt(s)"
@@ -288,6 +299,15 @@ done
   printf 'Raw responses are in `fixtures/raw/` and are gitignored — they contain live\n'
   printf 'device data. Committed shapes in `fixtures/shapes/` carry type names only.\n'
 } >> "$REPORT"
+
+# Last line of defence. If any identifier survived every mask above, scrub it in
+# place rather than leaving a committable file holding live data, and say so
+# loudly — a silent pass here is how the device ID leaked the first time.
+UUID_RE='[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+if [ "$REPORT" != /dev/null ] && grep -qE "$UUID_RE" "$REPORT" 2>/dev/null; then
+  sed -i '' -E "s/${UUID_RE}/{ID}/g" "$REPORT"
+  warn "an identifier reached $REPORT and was scrubbed — masking logic needs a look"
+fi
 
 note "wrote $REPORT"
 printf '\n'

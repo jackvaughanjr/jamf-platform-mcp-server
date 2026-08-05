@@ -16,37 +16,37 @@ empirically; results land in `fixtures/discovery-report.md`.
 Legend: **R** = reachable with read-only scopes · **W** = write, blocked by a
 read-only integration.
 
-## Discovery results (2026-08-04)
+## Discovery results — all groups resolved (2026-08-04)
 
-| group | segment | outcome |
-|---|---|---|
-| Blueprints | `blueprints` | **200** — confirmed |
-| Devices | `devices` | **200** — confirmed |
-| Device Groups | `device-groups` | **200** — confirmed |
-| Blueprint components | `blueprints` | **403** — path resolves, scope absent |
-| Compliance Benchmarks | — | **404** on `compliance-benchmarks`, `benchmarks`, `compliance` |
-| Declaration Reporting | — | **404** on `declaration-reporting`, `declarations` |
+Every group below has a confirmed path. `403` means the path is right and the
+integration lacks the scope; nothing here is an unresolved path.
 
-Three confirmed segments all equal the group name in kebab-case. Two open items:
+| group | segment | style | outcome |
+|---|---|---|---|
+| Blueprints | `blueprints` | `tenant` | **200** |
+| Devices | `devices` | `tenant` | **200** |
+| Device Groups | `device-groups` | `tenant` | **200** |
+| Jamf Pro API | `pro` | `tenant` | **200** |
+| Blueprint components | `blueprints` | `tenant` | 403 scope |
+| Compliance Benchmarks | `compliance-benchmarks` | `flat` | 403 scope |
+| Declaration Reporting | `pro` | `tenant` | 403 scope |
+| Jamf Pro Classic | `pro` | `raw` | 403 scope |
 
-**The probe varied only the service segment, not the resource.** If the resource
-name is also wrong, every service candidate returns 404 and the group looks
-unresolvable when only one half of the pair is off. Compliance Benchmarks was
-probed as `.../{service}/v1/tenant/{id}/benchmarks`; the docs describe the
-operation as "list tenant benchmarks", so the resource may differ. Next pass
-should probe the service × resource matrix, not just service.
+**Eight groups, five segments.** `pro` is an umbrella serving the Jamf Pro API,
+the Classic API, and Declaration Reporting.
 
-**Declaration Reporting may not take a tenant segment at all.** Its documented
-paths are `/v1/devices/{deviceId}/declarations` and
-`/v1/declarations/{declarationIdentifier}/devices` — no `tenant/{tenantId}`,
-unlike every other group. The probe inserts the tenant segment unconditionally,
-so a 404 is the expected result whether or not the segment name is right. It also
-has no tenant-level list endpoint: both paths require an ID, so it needs a device
-ID sourced from the Devices response.
+**Classic:** `/api/pro/JSSResource/tenant/{tenantId}/{resource}`. The bare
+`/JSSResource/{resource}` 404s — the tenant-scoped variant is required, and it
+carries no version segment. 500+ endpoints reachable through `rawPath`.
 
-**Blueprint components returned 403, which is a scope gap, not a path problem.**
-The read-only integration holds `read:pro:blueprints` (list works) but not
-whatever scope `components` requires. Worth adding if component metadata matters.
+**Declaration Reporting** does take a tenant segment even though its published
+paths omit one, and it is ID-only with no collection endpoint.
+
+**Compliance Benchmarks** is the only `flat` group — no tenant segment at all.
+
+Both groups that the first pass reported as 404 were resolved once the probe
+swept segment × resource × style instead of segment alone. Holding style fixed
+was the flaw, not the candidate names.
 
 ## Devices — segment candidate: `devices`
 

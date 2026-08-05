@@ -59,28 +59,47 @@ Diagnostic shorthand when a call fails:
 
 Resolved against a live tenant on 2026-08-04 (`fixtures/discovery-report.md`):
 
-| group | segment | style | status |
-|---|---|---|---|
-| Blueprints | `blueprints` | `tenant` | confirmed 200 |
-| Devices | `devices` | `tenant` | confirmed 200 |
-| Device Groups | `device-groups` | `tenant` | confirmed 200 |
-| **Jamf Pro API** | **`pro`** | `tenant` | confirmed 200 |
-| Compliance Benchmarks | `compliance-benchmarks` | **`flat`** | 403 — path OK, scope missing |
-| Declaration Reporting | unresolved | — | no collection endpoint; needs a device ID |
-| Jamf Pro Classic | unresolved | — | 404 on bare `/JSSResource/...` |
+**All eight probed groups are resolved.** Every non-200 below is a missing scope
+on the integration, not a wrong path.
 
-Two things this table exists to stop you assuming:
+| group | segment | style | path | status |
+|---|---|---|---|---|
+| Blueprints | `blueprints` | `tenant` | `/api/blueprints/v1/tenant/{t}/blueprints` | 200 |
+| Blueprint components | `blueprints` | `tenant` | `…/tenant/{t}/components` | 403 scope |
+| Devices | `devices` | `tenant` | `/api/devices/v1/tenant/{t}/devices` | 200 |
+| Device Groups | `device-groups` | `tenant` | `/api/device-groups/v1/tenant/{t}/device-groups` | 200 |
+| Compliance Benchmarks | `compliance-benchmarks` | `flat` | `/api/compliance-benchmarks/v1/benchmarks` | 403 scope |
+| Jamf Pro API | `pro` | `tenant` | `/api/pro/{v}/tenant/{t}/{resource}` | 200 |
+| Declaration Reporting | `pro` | `tenant` | `/api/pro/v1/tenant/{t}/devices/{id}/declarations` | 403 scope |
+| Jamf Pro Classic | `pro` | `raw` | `/api/pro/JSSResource/tenant/{t}/{resource}` | 403 scope |
 
-**The segment is not always the group name.** Jamf Pro API is `pro`, not
-`jamf-pro`. Four of five resolved segments match the group name; one does not.
+### Four findings that override the documentation
 
-**The style is not uniform.** Compliance Benchmarks is `flat` — no tenant
-segment — while everything else confirmed so far is `tenant`. Probe both before
-concluding a segment is wrong; the first discovery pass reported
-compliance-benchmarks as a 404 purely because it only tried `tenant`.
+**`pro` is an umbrella segment, not just the Jamf Pro API.** It serves the Jamf
+Pro API, the Classic API, *and* Declaration Reporting. Eight groups collapse to
+five distinct segments: `blueprints`, `devices`, `device-groups`,
+`compliance-benchmarks`, `pro`.
 
-`pro` + `tenant` makes the whole 300+ endpoint Jamf Pro API surface reachable
-through `platformRequest`, remembering that versions are per-resource.
+**Classic lives at `/api/pro/JSSResource/tenant/{tenantId}/{resource}`** — the
+tenant-scoped `JSSResource` form, under `pro`, with no version segment. The bare
+`/JSSResource/{resource}` returns 404. This makes the 500+ Classic endpoints
+reachable via `rawPath`.
+
+**Declaration Reporting does take a tenant segment**, despite its published
+paths (`/v1/devices/{deviceId}/declarations`) showing none. The docs were
+abbreviating. It is also ID-only — there is no collection endpoint — so any
+probe needs a real device ID.
+
+**The segment is not always the group name and the style is not uniform.** Jamf
+Pro API is `pro`, not `jamf-pro`. Compliance Benchmarks is the sole `flat`
+group. Sweep segment × resource × style before concluding a path is wrong — the
+first pass mislabelled two groups as 404 purely by holding style fixed.
+
+### Scopes the read-only integration is missing
+
+Blueprint components, Compliance Benchmarks, Declaration Reporting, and Classic
+all return 403. Compliance Benchmarks is the seven-endpoint group most likely to
+replace hand-rolled compliance logic, so it is the highest-value scope to add.
 
 ### Pagination envelopes are not uniform
 
