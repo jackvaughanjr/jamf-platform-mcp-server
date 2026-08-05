@@ -35,8 +35,28 @@ export interface RequestOptions {
    */
   service: string;
   /** Resource path below the tenant segment, e.g. "blueprints". */
-  resource: string;
-  /** API version segment. Defaults to "v1". */
+  resource?: string;
+  /**
+   * Everything after `/api/{service}`, used verbatim. The escape hatch for
+   * shapes the templates cannot express — notably Jamf Pro Classic, which is
+   * `/JSSResource/{resource}` with no version segment at all.
+   * Takes precedence over `resource` / `version` / `style`.
+   */
+  rawPath?: string;
+  /**
+   * Path layout. `tenant` (default) is the new APIs and Jamf Pro:
+   * `/{version}/tenant/{tenantId}/{resource}`. `flat` omits the tenant segment,
+   * which some groups' documented paths do — Declaration Reporting is published
+   * as `/v1/devices/{deviceId}/declarations`, with no tenant at all.
+   */
+  style?: 'tenant' | 'flat';
+  /**
+   * API version segment, defaults to "v1".
+   *
+   * Versions are PER-RESOURCE on Jamf Pro, not global: `account-groups` is v1,
+   * `enrollment` v3, `computers-inventory` v4. Never assume v1 carries over
+   * from one resource to the next.
+   */
   version?: string;
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   /**
@@ -120,13 +140,34 @@ export class JamfPlatformClient {
     return token.access_token;
   }
 
-  /** Builds a gateway URL: /api/{service}/{version}/tenant/{tenantId}/{resource} */
+  /**
+   * Builds a gateway URL. Three shapes are reachable:
+   *
+   *   style 'tenant' (default)  /api/{service}/{version}/tenant/{tenantId}/{resource}
+   *   style 'flat'              /api/{service}/{version}/{resource}
+   *   rawPath                   /api/{service}{rawPath}          (verbatim)
+   *
+   * rawPath exists because Jamf Pro Classic is `/JSSResource/{resource}` with no
+   * version segment, which neither template can produce.
+   */
   buildUrl(options: RequestOptions): string {
-    const version = options.version ?? 'v1';
-    const resource = options.resource.replace(/^\/+/, '');
-    const url = new URL(
-      `${this.config.gatewayBaseUrl}/api/${options.service}/${version}/tenant/${this.config.tenantId}/${resource}`,
-    );
+    let suffix: string;
+
+    if (options.rawPath !== undefined) {
+      suffix = options.rawPath.startsWith('/') ? options.rawPath : `/${options.rawPath}`;
+    } else {
+      if (options.resource === undefined) {
+        throw new Error('buildUrl requires either `resource` or `rawPath`');
+      }
+      const version = options.version ?? 'v1';
+      const resource = options.resource.replace(/^\/+/, '');
+      suffix =
+        options.style === 'flat'
+          ? `/${version}/${resource}`
+          : `/${version}/tenant/${this.config.tenantId}/${resource}`;
+    }
+
+    const url = new URL(`${this.config.gatewayBaseUrl}/api/${options.service}${suffix}`);
     for (const [key, value] of Object.entries(options.query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
@@ -144,6 +185,7 @@ export class JamfPlatformClient {
     }
 
     const url = this.buildUrl(options);
+    const label = options.rawPath ?? options.resource ?? '(unknown)';
     const token = await this.getAccessToken();
 
     const response = await fetch(url, {
@@ -159,7 +201,7 @@ export class JamfPlatformClient {
     const text = await response.text();
     if (!response.ok) {
       throw new JamfPlatformApiError(
-        `${method} ${options.service}/${options.resource} failed (${response.status} ${response.statusText})`,
+        `${method} ${options.service}/${label} failed (${response.status} ${response.statusText})`,
         response.status,
         url,
         text,

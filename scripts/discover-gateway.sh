@@ -48,6 +48,12 @@ fi
 for cmd in curl jq; do
   command -v "$cmd" >/dev/null 2>&1 || die "$cmd is required but not on PATH"
 done
+# DRY_RUN only prints the probe matrix, so it needs no real credentials.
+if [ "${DRY_RUN:-}" = "1" ]; then
+  : "${JAMF_CLIENT_ID:=dry-run}" "${JAMF_CLIENT_SECRET:=dry-run}" "${JAMF_TENANT_ID:={TENANT\}}"
+  export JAMF_CLIENT_ID JAMF_CLIENT_SECRET JAMF_TENANT_ID
+fi
+
 for var in JAMF_CLIENT_ID JAMF_CLIENT_SECRET JAMF_TENANT_ID; do
   [ -n "${!var:-}" ] || die "$var is not set (see .env.op.example)"
 done
@@ -62,17 +68,48 @@ SHAPE_DIR="$REPO_ROOT/fixtures/shapes"
 REPORT="$REPO_ROOT/fixtures/discovery-report.md"
 mkdir -p "$RAW_DIR" "$SHAPE_DIR"
 
+# A dry run must not touch the committed report — it has no results to record,
+# and clobbering real findings with empty rows is worse than useless.
+[ "${DRY_RUN:-}" = "1" ] && REPORT=/dev/null
+
 # ── probe table ──────────────────────────────────────────────────────────────
-# group | candidate service segments (space-separated) | list resource
-# Blueprints is known-good from scripts/fetch-blueprints.sh and acts as the
-# control: if it fails, the credentials or gateway are wrong, not the table.
+# group | services (space-separated) | resources (space-separated) | styles
+#
+# The FULL service x resource matrix is swept. The first pass varied only the
+# service while holding the resource fixed, so a wrong resource made every
+# service candidate 404 and the group looked unresolvable when just one half of
+# the pair was off — that is why compliance-benchmarks and declaration-reporting
+# came back empty.
+#
+# styles: "tenant" -> /{version}/tenant/{tenantId}/{resource}
+#         "flat"   -> /{version}/{resource}            (no tenant segment)
+#         "raw"    -> resource used verbatim after /api/{service}, no version
+#                     (required for Classic: /JSSResource/{resource})
+#
+# Blueprints is the control: known-good from scripts/fetch-blueprints.sh, so if
+# it fails the credentials or gateway are wrong, not the table.
 PROBES=(
-  "blueprints|blueprints|blueprints"
-  "blueprint-components|blueprints|components"
-  "devices|devices device|devices"
-  "device-groups|device-groups devicegroups devices|device-groups"
-  "compliance-benchmarks|compliance-benchmarks benchmarks compliance|benchmarks"
-  "declaration-reporting|declaration-reporting declarations|declarations"
+  "blueprints|blueprints|blueprints|tenant"
+  "blueprint-components|blueprints|components|tenant"
+  "devices|devices|devices|tenant"
+  "device-groups|device-groups|device-groups|tenant"
+
+  # Docs name the operation "list tenant benchmarks" without publishing a path,
+  # so resource is as uncertain as the segment. Sweep both.
+  "compliance-benchmarks|compliance-benchmarks benchmarks compliance mscp|benchmarks tenant-benchmarks baselines|tenant flat"
+
+  # Documented paths carry NO tenant segment, unlike every other group, and both
+  # require an ID — so a tenant-scoped list probe was guaranteed to 404. Try flat
+  # and a plain collection.
+  "declaration-reporting|declaration-reporting declarations declaration|declarations device-declarations|flat tenant"
+
+  # Jamf Pro API: 300+ endpoints. account-groups is v1 and the cheapest probe.
+  # Resolving the segment once makes the whole surface reachable via rawPath.
+  "jamf-pro|pro jamf-pro jamfpro jamf-pro-api|account-groups categories|tenant flat"
+
+  # Jamf Pro Classic: 500+ endpoints, /JSSResource/{resource}, no version.
+  # Only the raw style can express this.
+  "jamf-pro-classic|classic jamf-pro-classic pro jamf-pro|/JSSResource/categories /JSSResource/buildings|raw"
 )
 
 # ── token, refreshed proactively (gateway tokens are ~900s) ──────────────────
@@ -111,8 +148,12 @@ SHAPE_FILTER='
     else type end;
   shape'
 
-get_token
-note "gateway ${BASE}  tenant ${JAMF_TENANT_ID:0:8}…"
+if [ "${DRY_RUN:-}" = "1" ]; then
+  note "DRY RUN — printing probe matrix, no gateway calls"
+else
+  get_token
+  note "gateway ${BASE}  tenant ${JAMF_TENANT_ID:0:8}…"
+fi
 
 {
   printf '# Gateway discovery report\n\n'
@@ -127,44 +168,65 @@ note "gateway ${BASE}  tenant ${JAMF_TENANT_ID:0:8}…"
 } > "$REPORT"
 
 for probe in "${PROBES[@]}"; do
-  IFS='|' read -r group candidates resource <<< "$probe"
-  resolved=""; final_status=""; final_url=""; note_text=""
+  IFS='|' read -r group services resources styles <<< "$probe"
+  [ -n "$styles" ] || styles="tenant"
+  resolved=""; resolved_style=""; final_status=""; final_url=""; note_text=""; attempts=0
 
-  for service in $candidates; do
-    url="${BASE}/api/${service}/v1/tenant/${JAMF_TENANT_ID}/${resource}"
+  # Full matrix: every service x resource x style until something answers.
+  for service in $services; do
+   for resource in $resources; do
+    for style in $styles; do
+    case "$style" in
+      tenant) url="${BASE}/api/${service}/v1/tenant/${JAMF_TENANT_ID}/${resource}" ;;
+      flat)   url="${BASE}/api/${service}/v1/${resource}" ;;
+      raw)    url="${BASE}/api/${service}${resource}" ;;
+      *)      die "unknown style '$style' in probe table for ${group}" ;;
+    esac
+    attempts=$(( attempts + 1 ))
+
+    # DRY_RUN=1 prints the matrix without calling the gateway — check the probe
+    # table before spending real requests on it.
+    if [ "${DRY_RUN:-}" = "1" ]; then
+      printf '  %-22s %s\n' "$group" "${url#$BASE}" >&2
+      continue
+    fi
+
     body_file="$(mktemp)"
     status="$(curl -sS -o "$body_file" -w '%{http_code}' \
       -H "$(auth_header)" -H 'Accept: application/json' \
       "${url}?page=0&page-size=5" || echo "000")"
 
+    # break 3 exits service/resource/style together — a plain break would only
+    # leave the style loop and keep probing after a hit.
     case "$status" in
       200)
-        resolved="$service"; final_status="$status"; final_url="$url"
-        note "${group}: 200 via service='${service}'"
+        resolved="$service"; resolved_style="$style"; final_status="$status"; final_url="$url"
+        note "${group}: 200 via service='${service}' resource='${resource}' style='${style}'"
         cp "$body_file" "$RAW_DIR/${group}.json"
         jq "$SHAPE_FILTER" < "$body_file" > "$SHAPE_DIR/${group}.json" 2>/dev/null \
           || printf '"unparseable"\n' > "$SHAPE_DIR/${group}.json"
         # Record the envelope's KEY NAMES, never the values. Which paging fields
         # exist is the engineering signal; item counts are fleet intel and this
         # report is committed and shared externally.
-        envelope="$(jq -r '[keys_unsorted[] | select(. != "results" and . != "items")] | join(", ")' \
+        envelope="$(jq -r 'if type=="object" then [keys_unsorted[] | select(. != "results" and . != "items")] | join(", ") else "top-level " + type end' \
           < "$body_file" 2>/dev/null || echo '?')"
-        note_text="envelope: \`${envelope}\`"
-        rm -f "$body_file"; break ;;
+        note_text="style \`${style}\`, envelope: \`${envelope}\`"
+        rm -f "$body_file"; break 3 ;;
       403)
-        # Path is right; scope is missing. Record and stop probing candidates.
-        resolved="$service"; final_status="$status"; final_url="$url"
-        note_text="path resolves; integration lacks the required read scope"
-        warn "${group}: 403 via service='${service}' (path OK, scope missing)"
-        rm -f "$body_file"; break ;;
+        # Path is right; scope is missing. Stop — no better answer exists.
+        resolved="$service"; resolved_style="$style"; final_status="$status"; final_url="$url"
+        note_text="style \`${style}\`; path resolves, integration lacks the read scope"
+        warn "${group}: 403 via service='${service}' style='${style}' (path OK, scope missing)"
+        rm -f "$body_file"; break 3 ;;
       401)
         rm -f "$body_file"
         die "401 from gateway — token rejected. Credential problem, not a path problem." ;;
       *)
-        note_text="no candidate returned 200/403 (last ${status})"
         final_status="$status"; final_url="$url"
         rm -f "$body_file" ;;
     esac
+    done
+   done
   done
 
   # The report is a committed artifact, so the tenant ID — a live infrastructure
@@ -173,9 +235,9 @@ for probe in "${PROBES[@]}"; do
   report_path="${report_path//$JAMF_TENANT_ID/\{TENANT\}}"
 
   if [ -z "$resolved" ]; then
-    warn "${group}: unresolved (tried: ${candidates})"
-    printf '| `%s` | — | %s | `%s` | tried: %s |\n' \
-      "$group" "$final_status" "$report_path" "$candidates" >> "$REPORT"
+    warn "${group}: unresolved after ${attempts} attempt(s)"
+    printf '| `%s` | — | %s | `%s` | %s combos tried; services: %s |\n' \
+      "$group" "$final_status" "$report_path" "$attempts" "$services" >> "$REPORT"
   else
     printf '| `%s` | `%s` | %s | `%s` | %s |\n' \
       "$group" "$resolved" "$final_status" "$report_path" "$note_text" >> "$REPORT"

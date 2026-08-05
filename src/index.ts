@@ -59,21 +59,33 @@ server.registerTool(
   {
     title: 'Jamf Platform API request',
     description:
-      'Make an authenticated request against the Jamf Platform API Gateway. ' +
-      'Builds /api/{service}/{version}/tenant/{tenantId}/{resource} and attaches a bearer token. ' +
-      'Use for any endpoint that lacks a dedicated tool.',
+      'Make an authenticated request against any Jamf Platform API Gateway endpoint. ' +
+      'The gateway also fronts the Jamf Pro API (300+ endpoints) and Jamf Pro Classic API ' +
+      '(500+), so this reaches essentially the whole Jamf surface. ' +
+      'Shapes: style "tenant" (default) builds /{version}/tenant/{tenantId}/{resource}; ' +
+      'style "flat" omits the tenant segment; rawPath is used verbatim after /api/{service} ' +
+      'and is required for Classic, which is /JSSResource/{resource} with no version. ' +
+      'Jamf Pro versions are per-resource (account-groups v1, enrollment v3, ' +
+      'computers-inventory v4) — do not assume v1.',
     inputSchema: {
-      service: z.string().describe('Gateway service segment, e.g. "pro"'),
-      resource: z.string().describe('Resource path below the tenant segment, e.g. "blueprints"'),
-      version: z.string().optional().describe('API version segment, defaults to "v1"'),
+      service: z.string().describe('Gateway service segment, e.g. "blueprints", "devices"'),
+      resource: z.string().optional().describe('Resource path, e.g. "blueprints". Omit if using rawPath.'),
+      rawPath: z
+        .string()
+        .optional()
+        .describe('Path after /api/{service}, used verbatim, e.g. "/JSSResource/computers"'),
+      style: z.enum(['tenant', 'flat']).optional().describe('Path layout; defaults to "tenant"'),
+      version: z.string().optional().describe('Version segment, defaults to "v1". Per-resource on Jamf Pro.'),
       method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional().describe('Defaults to GET'),
       query: z.record(z.string(), z.string()).optional().describe('Query string parameters'),
       body: z.unknown().optional().describe('JSON request body for write methods'),
     },
   },
-  async ({ service, resource, version, method, query, body }) => {
+  async ({ service, resource, rawPath, style, version, method, query, body }) => {
     try {
-      return asContent(await client.request({ service, resource, version, method, query, body }));
+      return asContent(
+        await client.request({ service, resource, rawPath, style, version, method, query, body }),
+      );
     } catch (error) {
       return asError(error);
     }
