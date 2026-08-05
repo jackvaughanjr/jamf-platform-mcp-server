@@ -204,24 +204,101 @@ export interface GroupSummary {
   byGroupType: Array<{ key: string; count: number }>;
   emptyGroups: number;
   largest: Array<{ name: string; memberCount: number; deviceType: string }>;
+  /**
+   * How many groups sit at the maximum member count.
+   *
+   * A fleet's biggest groups are usually catch-alls — an all-managed-clients
+   * group, per-application "installed" groups — all holding the same total. When
+   * this count reaches the requested topN, the `largest` list is saturated with
+   * them and is telling you nothing differentiating; raise topN to see past them.
+   */
+  saturation: { maxMemberCount: number; groupsAtMax: number; largestIsSaturated: boolean };
 }
 
-export function summarizeGroups(groups: DeviceGroupRecord[], topN = 5): GroupSummary {
+export function summarizeGroups(groups: DeviceGroupRecord[], topN = 10): GroupSummary {
+  const sized = groups.filter((g) => typeof g.memberCount === 'number');
+  const maxMemberCount = sized.reduce((m, g) => Math.max(m, g.memberCount ?? 0), 0);
+  const groupsAtMax = sized.filter((g) => (g.memberCount ?? 0) === maxMemberCount).length;
+
   return {
     total: groups.length,
     byDeviceType: ranked(tally(groups.map((g) => g.deviceType ?? 'unknown'))),
     byGroupType: ranked(tally(groups.map((g) => g.groupType ?? 'unknown'))),
     emptyGroups: groups.filter((g) => (g.memberCount ?? 0) === 0).length,
-    largest: groups
-      .filter((g) => typeof g.memberCount === 'number')
-      .sort((a, b) => (b.memberCount ?? 0) - (a.memberCount ?? 0))
+    largest: sized
+      .slice()
+      .sort(
+        (a, b) =>
+          (b.memberCount ?? 0) - (a.memberCount ?? 0) ||
+          (a.name ?? '').localeCompare(b.name ?? ''),
+      )
       .slice(0, topN)
       .map((g) => ({
         name: g.name ?? '(unnamed)',
         memberCount: g.memberCount ?? 0,
         deviceType: g.deviceType ?? 'unknown',
       })),
+    saturation: {
+      maxMemberCount,
+      groupsAtMax,
+      // Only meaningful when there is more than one group at the top.
+      largestIsSaturated: groupsAtMax > 1 && groupsAtMax >= topN,
+    },
   };
+}
+
+export interface OutdatedDevice {
+  id?: string;
+  name?: string;
+  serialNumber?: string | null;
+  platform: Platform;
+  operatingSystemVersion: string | null;
+  majorVersion: string;
+  lastSeenIso: string | null;
+  lastSeenSource: SeenSource | null;
+}
+
+/**
+ * Devices whose OS major version is below `belowMajor`.
+ *
+ * Devices with an unreadable or absent version are returned separately rather than
+ * folded in: "version unknown" is not the same finding as "version is old", and
+ * silently treating one as the other either hides a reporting problem or invents
+ * an upgrade task.
+ */
+export function selectOutdatedDevices(
+  devices: DeviceRecord[],
+  belowMajor: number,
+): { outdated: OutdatedDevice[]; unknownVersion: OutdatedDevice[] } {
+  const project = (d: DeviceRecord): OutdatedDevice => {
+    const { at, source } = lastSeen(d);
+    return {
+      id: d.id,
+      name: d.name,
+      serialNumber: d.serialNumber,
+      platform: platformOf(d.modelIdentifier),
+      operatingSystemVersion: d.operatingSystemVersion ?? null,
+      majorVersion: majorVersion(d.operatingSystemVersion),
+      lastSeenIso: at === null ? null : new Date(at).toISOString(),
+      lastSeenSource: source,
+    };
+  };
+
+  const outdated: OutdatedDevice[] = [];
+  const unknownVersion: OutdatedDevice[] = [];
+
+  for (const d of devices) {
+    const major = majorVersion(d.operatingSystemVersion);
+    if (major === 'unknown') {
+      unknownVersion.push(project(d));
+    } else if (Number(major) < belowMajor) {
+      outdated.push(project(d));
+    }
+  }
+
+  // Oldest first — that is the order someone works through them in.
+  outdated.sort((a, b) => Number(a.majorVersion) - Number(b.majorVersion));
+  return { outdated, unknownVersion };
 }
 
 export interface BlueprintSummary {

@@ -5,6 +5,7 @@ import {
   majorVersion,
   matchesDeviceQuery,
   platformOf,
+  selectOutdatedDevices,
   summarizeBlueprints,
   summarizeDevices,
   summarizeGroups,
@@ -198,6 +199,36 @@ describe('summarizeGroups', () => {
     ]);
   });
 
+  // The real-world failure: several catch-all groups all holding the whole fleet
+  // fill the top-N list, so it shows nothing differentiating.
+  it('flags a saturated largest list when groups tie at the maximum', () => {
+    // Names are invented. Real tenant group names are operational detail and do
+    // not belong in a repo shared outside the organisation that owns the fleet.
+    const saturated = [
+      { name: 'catch-all-a', memberCount: 56, deviceType: 'COMPUTER' },
+      { name: 'catch-all-b', memberCount: 56, deviceType: 'COMPUTER' },
+      { name: 'catch-all-c', memberCount: 56, deviceType: 'COMPUTER' },
+      { name: 'narrow-group', memberCount: 3, deviceType: 'COMPUTER' },
+    ];
+    const tight = summarizeGroups(saturated, 3);
+    expect(tight.saturation).toEqual({ maxMemberCount: 56, groupsAtMax: 3, largestIsSaturated: true });
+    // Raising topN past the tie surfaces the differentiating group.
+    const roomy = summarizeGroups(saturated, 4);
+    expect(roomy.saturation.largestIsSaturated).toBe(false);
+    expect(roomy.largest.map((g) => g.name)).toContain('narrow-group');
+  });
+
+  it('does not call a single largest group saturated', () => {
+    const s = summarizeGroups([{ name: 'only', memberCount: 9 }], 1);
+    expect(s.saturation.groupsAtMax).toBe(1);
+    expect(s.saturation.largestIsSaturated).toBe(false);
+  });
+
+  it('defaults to 10 largest rather than 5', () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({ name: `g${i}`, memberCount: i }));
+    expect(summarizeGroups(many).largest).toHaveLength(10);
+  });
+
   it('handles no groups', () => {
     expect(summarizeGroups([]).total).toBe(0);
     expect(summarizeGroups([]).largest).toEqual([]);
@@ -219,6 +250,48 @@ describe('summarizeBlueprints', () => {
       { key: 'unknown', count: 2 },
       { key: 'PENDING', count: 1 },
     ]);
+  });
+});
+
+describe('selectOutdatedDevices', () => {
+  const devices: DeviceRecord[] = [
+    { name: 'current', modelIdentifier: 'MacBookPro18,3', operatingSystemVersion: '26.1', lastInventoryUpdateTime: daysAgo(1) },
+    { name: 'old-mac', modelIdentifier: 'MacBookPro15,1', operatingSystemVersion: '15.7.2', lastCheckInTime: daysAgo(40) },
+    { name: 'older-tv', modelIdentifier: 'AppleTV11,1', operatingSystemVersion: '14.0', lastInventoryUpdateTime: daysAgo(5) },
+    { name: 'no-version', modelIdentifier: 'iPad15,7', operatingSystemVersion: null, lastInventoryUpdateTime: daysAgo(2) },
+  ];
+
+  it('returns devices below the threshold, oldest first', () => {
+    const { outdated } = selectOutdatedDevices(devices, 26);
+    expect(outdated.map((d) => d.name)).toEqual(['older-tv', 'old-mac']);
+  });
+
+  // "Unknown version" is a reporting problem, not an upgrade task. Folding it in
+  // would either hide the former or invent the latter.
+  it('separates unknown versions from outdated ones', () => {
+    const { outdated, unknownVersion } = selectOutdatedDevices(devices, 26);
+    expect(outdated.map((d) => d.name)).not.toContain('no-version');
+    expect(unknownVersion.map((d) => d.name)).toEqual(['no-version']);
+  });
+
+  it('excludes devices at or above the threshold', () => {
+    expect(selectOutdatedDevices(devices, 15).outdated.map((d) => d.name)).toEqual(['older-tv']);
+    expect(selectOutdatedDevices(devices, 1).outdated).toEqual([]);
+  });
+
+  it('carries platform and freshest-activity context for each hit', () => {
+    const { outdated } = selectOutdatedDevices(devices, 26);
+    const mac = outdated.find((d) => d.name === 'old-mac');
+    expect(mac?.platform).toBe('macOS');
+    expect(mac?.majorVersion).toBe('15');
+    expect(mac?.lastSeenSource).toBe('lastCheckInTime');
+    const tv = outdated.find((d) => d.name === 'older-tv');
+    expect(tv?.platform).toBe('tvOS');
+    expect(tv?.lastSeenSource).toBe('lastInventoryUpdateTime');
+  });
+
+  it('handles an empty fleet', () => {
+    expect(selectOutdatedDevices([], 26)).toEqual({ outdated: [], unknownVersion: [] });
   });
 });
 

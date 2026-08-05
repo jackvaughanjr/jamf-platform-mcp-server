@@ -23,6 +23,12 @@ guarantee.
   rather than losing the whole answer.
 - `findDevices` — search by serial, name, model, id or user across the paginated
   device list.
+- `findOutdatedDevices` — devices below an OS major version, oldest first, with the
+  freshest activity timestamp for each. Unknown-version devices are reported
+  separately, since that is a reporting problem rather than an upgrade task.
+- `getFleetOverview` takes `topGroups` (default 10, raised from 5) and reports
+  `deviceGroups.saturation`, which flags when the largest-groups list is filled by
+  catch-all groups all holding the whole fleet and is therefore uninformative.
 - `src/fleet.ts` — pure aggregation helpers, no client or clock, mutation-checked.
 - `scripts/discover-gateway.sh` — resolves service segments empirically, enumerates
   hosted segments, and captures type-only response schemas.

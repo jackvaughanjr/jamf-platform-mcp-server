@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-55%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-63%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -88,9 +88,9 @@ Declaration Reporting, Compliance Benchmarks. This is an evidenced conclusion, n
 an omission — see [JPM-0005](decisions/JPM-0005-unsupported-api-groups.md) and
 [`docs/gateway-reference.md`](docs/gateway-reference.md).
 
-Tools: `getFleetOverview` and `findDevices` (compound), `listBlueprints` (typed),
-and `platformRequest` (authenticated passthrough to any gateway route). Tool count
-stays deliberately small
+Tools: `getFleetOverview`, `findDevices` and `findOutdatedDevices` (compound),
+`listBlueprints` (typed), and `platformRequest` (authenticated passthrough to any
+gateway route). Tool count stays deliberately small
 ([JPM-0003](decisions/JPM-0003-passthrough-plus-selective-typed-tools.md)).
 
 Pagination is confirmed live: a real page-1 request returned different records with
@@ -165,7 +165,7 @@ against it would be a false promise.
 ## Testing
 
 ```bash
-npm test              # vitest, 55 tests
+npm test              # vitest, 63 tests
 npm run typecheck
 DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix, no credentials needed
 ```

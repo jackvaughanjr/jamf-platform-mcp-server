@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { loadConfig } from './config.js';
 import {
   matchesDeviceQuery,
+  selectOutdatedDevices,
   summarizeBlueprints,
   summarizeDevices,
   summarizeGroups,
@@ -157,10 +158,21 @@ server.registerTool(
         .int()
         .positive()
         .optional()
-        .describe('Days without a check-in before a device counts as stale. Defaults to 30.'),
+        .describe('Days without any reported activity before a device counts as stale. Defaults to 30.'),
+      topGroups: z
+        .number()
+        .int()
+        .positive()
+        .max(100)
+        .optional()
+        .describe(
+          'How many largest device groups to list. Defaults to 10. The biggest groups are ' +
+            'usually catch-alls holding the entire fleet, so check saturation.largestIsSaturated ' +
+            'and raise this to see differentiating groups.',
+        ),
     },
   },
-  async ({ staleThresholdDays }) => {
+  async ({ staleThresholdDays, topGroups }) => {
     const [devices, groups, blueprints] = await Promise.allSettled([
       client.requestAll<DeviceRecord>({ service: 'devices', resource: 'devices' }),
       client.requestAll<DeviceGroupRecord>({ service: 'device-groups', resource: 'device-groups' }),
@@ -177,7 +189,7 @@ server.registerTool(
     }
 
     if (groups.status === 'fulfilled') {
-      overview.deviceGroups = summarizeGroups(groups.value);
+      overview.deviceGroups = summarizeGroups(groups.value, topGroups ?? 10);
     } else {
       errors.deviceGroups = legError(groups.reason);
     }
@@ -230,6 +242,51 @@ server.registerTool(
         // Say so when results are cut, rather than implying this is everything.
         truncated: matches.length > cap,
         devices: matches.slice(0, cap),
+      });
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+/**
+ * Compound tool: which devices are behind on OS.
+ *
+ * `getFleetOverview` buckets by OS major, which shows *that* some devices are
+ * behind but not *which* — so answering the obvious follow-up previously meant
+ * dropping to `platformRequest` and filtering by hand.
+ */
+server.registerTool(
+  'findOutdatedDevices',
+  {
+    title: 'Find outdated devices',
+    description:
+      'List devices whose OS major version is below a threshold, oldest first, with the ' +
+      'freshest activity timestamp for each. Devices whose version is missing or ' +
+      'unparseable are returned separately, because "unknown version" is a different ' +
+      'finding from "old version". Spans macOS and iOS/iPadOS/tvOS.',
+    inputSchema: {
+      belowMajor: z
+        .number()
+        .int()
+        .positive()
+        .describe('Report devices whose OS major version is below this (e.g. 26 to find pre-26)'),
+      limit: z.number().int().positive().max(500).optional().describe('Max devices per list. Defaults to 50.'),
+    },
+  },
+  async ({ belowMajor, limit }) => {
+    try {
+      const all = await client.requestAll<DeviceRecord>({ service: 'devices', resource: 'devices' });
+      const { outdated, unknownVersion } = selectOutdatedDevices(all, belowMajor);
+      const cap = limit ?? 50;
+      return asContent({
+        belowMajor,
+        scanned: all.length,
+        outdatedCount: outdated.length,
+        unknownVersionCount: unknownVersion.length,
+        truncated: outdated.length > cap || unknownVersion.length > cap,
+        outdated: outdated.slice(0, cap),
+        unknownVersion: unknownVersion.slice(0, cap),
       });
     } catch (error) {
       return asError(error);
