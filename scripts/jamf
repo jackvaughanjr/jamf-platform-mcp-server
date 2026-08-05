@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+#
+# Cwd-independent wrapper for call-tool.mjs.
+#
+# `op run --env-file=.env.op` resolves that path against the CALLER's cwd, not the
+# repo, so running it from anywhere else fails with a bare
+# "open .env.op: no such file or directory" that does not hint at the cause.
+# op owns that resolution, so the script itself cannot fix it — this passes an
+# absolute path instead.
+#
+# Usage, from any directory:
+#   scripts/jamf tools/list
+#   scripts/jamf getFleetOverview
+#   scripts/jamf findDevices '{"query":"MacBook"}'
+#
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="$REPO_ROOT/.env.op"
+
+if [ ! -f "$ENV_FILE" ]; then
+  printf '\033[31merror:\033[0m %s not found. Copy the template and edit it:\n' "$ENV_FILE" >&2
+  printf '  cp %s/.env.op.example %s\n' "$REPO_ROOT" "$ENV_FILE" >&2
+  exit 2
+fi
+
+if [ ! -f "$REPO_ROOT/dist/index.js" ]; then
+  printf '\033[31merror:\033[0m server not built. Run: (cd %s && npm run build)\n' "$REPO_ROOT" >&2
+  exit 2
+fi
+
+# The committed .envrc unsets this, but direnv only applies inside the repo — and
+# the point of this wrapper is that it works from anywhere. Left set, `op`
+# authenticates as the service account instead of prompting for biometrics and sees
+# only the vaults granted to it, surfacing as a confusing
+# "X isn't a vault in this account".
+unset OP_SERVICE_ACCOUNT_TOKEN
+
+exec op run --env-file="$ENV_FILE" -- node "$REPO_ROOT/scripts/call-tool.mjs" "$@"
