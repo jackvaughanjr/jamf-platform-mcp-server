@@ -191,7 +191,13 @@ scripts/jamf findDevices '{"query":"MacBook"}'
 `scripts/jamf` wraps `op run` with an absolute `--env-file` path, because `op`
 resolves that against the caller's cwd and fails with a bare "open .env.op: no such
 file or directory" otherwise. It also unsets `OP_SERVICE_ACCOUNT_TOKEN`, which the
-committed `.envrc` handles inside the repo but cannot outside it.
+committed `.envrc` handles inside the repo but cannot outside it, and resolves
+symlinks so it can be linked onto `PATH` for a shorter handle:
+
+```bash
+ln -s "$PWD/scripts/jamf" ~/.local/bin/jamf-mcp
+jamf-mcp getFleetOverview
+```
 
 **Not `npm run inspector` under `op run`.** The MCP Inspector spawns the server as
 a child process without forwarding the parent environment, so injected credentials

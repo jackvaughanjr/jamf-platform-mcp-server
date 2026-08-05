@@ -15,7 +15,23 @@
 #
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Resolve symlinks before deriving the repo root. Invoked through a symlink on PATH
+# (e.g. ~/.local/bin/jamf-mcp), BASH_SOURCE is the LINK's path, so a naive dirname
+# yields the link's directory and every repo-relative lookup lands in the wrong
+# place. Walks the chain rather than using `readlink -f`, which is not portable to
+# older BSD/macOS.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  LINK_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  # A relative link target is relative to the link's own directory.
+  case "$SOURCE" in
+    /*) ;;
+    *) SOURCE="$LINK_DIR/$SOURCE" ;;
+  esac
+done
+
+REPO_ROOT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
 ENV_FILE="$REPO_ROOT/.env.op"
 
 if [ ! -f "$ENV_FILE" ]; then
