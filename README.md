@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-97%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-102%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -97,7 +97,8 @@ Compliance Benchmarks were simply not exposed. That was wrong; see
 which supersedes JPM-0005 and explains how the error happened.
 
 Tools: `getFleetOverview`, `findDevices`, `findOutdatedDevices`, `findDeviceGroups`
-`getDeviceGroupMembers` and `findExpensiveAutomations` (compound), `listBlueprints` (typed), and
+`getDeviceGroupMembers`, `findExpensiveAutomations` and `getInventoryCollectionSettings`
+(compound), `listBlueprints` (typed), and
 `platformRequest` (authenticated passthrough to any gateway route). Tool count stays
 deliberately small
 ([JPM-0003](decisions/JPM-0003-passthrough-plus-selective-typed-tools.md)).
@@ -174,7 +175,7 @@ against it would be a false promise.
 ## Testing
 
 ```bash
-npm test              # vitest, 97 tests
+npm test              # vitest, 102 tests
 npm run typecheck
 DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix, no credentials needed
 ```

@@ -149,6 +149,122 @@ export function classifyPolicyCadence(general: PolicyGeneral | null | undefined)
 }
 
 /**
+ * Computer inventory collection settings, from Classic.
+ *
+ * Note `inclue_applications` / `inclue_fonts` / `inclue_plugins` — the misspelling
+ * is Jamf's, in the live API. Both spellings are accepted here so a future
+ * correction upstream does not silently turn every lookup into `undefined`, which
+ * would read as "not enabled".
+ */
+export interface InventoryCollectionSettings {
+  local_user_accounts?: boolean;
+  home_directory_sizes?: boolean;
+  hidden_accounts?: boolean;
+  printers?: boolean;
+  active_services?: boolean;
+  package_receipts?: boolean;
+  available_software_updates?: boolean;
+  inclue_applications?: boolean;
+  include_applications?: boolean;
+  inclue_fonts?: boolean;
+  include_fonts?: boolean;
+  inclue_plugins?: boolean;
+  include_plugins?: boolean;
+  applications?: unknown[];
+  fonts?: unknown[];
+  plugins?: unknown[];
+}
+
+export interface InventoryCostFinding {
+  setting: string;
+  enabled: boolean;
+  cost: 'high' | 'medium' | 'low';
+  why: string;
+}
+
+/**
+ * Rates inventory collection options by how much work each adds per collection.
+ *
+ * This matters far more than it looks, because these run on **every** inventory
+ * collection. If inventory is triggered at every check-in rather than daily, each
+ * enabled option below runs roughly every 15 minutes on every machine.
+ *
+ * `home_directory_sizes` is called out as high cost specifically: Jamf computes it
+ * by running `du` across every user home directory, which is the classic cause of a
+ * `du` process appearing under JamfDaemon with a large energy impact.
+ */
+export function assessInventoryCollection(settings: InventoryCollectionSettings | null | undefined): {
+  findings: InventoryCostFinding[];
+  enabledHighCost: string[];
+  customSearchPaths: { applications: number; fonts: number; plugins: number };
+} {
+  const on = (...keys: Array<keyof InventoryCollectionSettings>) =>
+    keys.some((k) => settings?.[k] === true);
+
+  const findings: InventoryCostFinding[] = [
+    {
+      setting: 'home_directory_sizes',
+      enabled: on('home_directory_sizes'),
+      cost: 'high',
+      why: 'Jamf runs `du` across every user home directory to compute this. The usual cause of a du process under JamfDaemon burning CPU and battery.',
+    },
+    {
+      setting: 'package_receipts',
+      enabled: on('package_receipts'),
+      cost: 'medium',
+      why: 'reads the installer receipt database and enumerates every receipt',
+    },
+    {
+      setting: 'available_software_updates',
+      enabled: on('available_software_updates'),
+      cost: 'medium',
+      why: 'network round trip to Apple per collection; slow and can stall',
+    },
+    {
+      setting: 'inclue_fonts / include_fonts',
+      enabled: on('inclue_fonts', 'include_fonts'),
+      cost: 'medium',
+      why: 'walks font directories on every collection',
+    },
+    {
+      setting: 'inclue_plugins / include_plugins',
+      enabled: on('inclue_plugins', 'include_plugins'),
+      cost: 'medium',
+      why: 'walks plug-in directories on every collection',
+    },
+    {
+      setting: 'inclue_applications / include_applications',
+      enabled: on('inclue_applications', 'include_applications'),
+      cost: 'low',
+      why: 'application inventory; usually acceptable, but adds a walk per custom search path',
+    },
+    {
+      setting: 'active_services',
+      enabled: on('active_services'),
+      cost: 'low',
+      why: 'enumerates running services',
+    },
+    { setting: 'printers', enabled: on('printers'), cost: 'low', why: 'enumerates printers' },
+    {
+      setting: 'local_user_accounts',
+      enabled: on('local_user_accounts'),
+      cost: 'low',
+      why: 'enumerates local accounts',
+    },
+  ];
+
+  return {
+    findings,
+    enabledHighCost: findings.filter((f) => f.enabled && f.cost === 'high').map((f) => f.setting),
+    customSearchPaths: {
+      applications: Array.isArray(settings?.applications) ? settings.applications.length : 0,
+      fonts: Array.isArray(settings?.fonts) ? settings.fonts.length : 0,
+      plugins: Array.isArray(settings?.plugins) ? settings.plugins.length : 0,
+    },
+  };
+}
+
+/**
  * Pulls the array out of a Jamf Pro Classic list response.
  *
  * Classic's **JSON** wraps a collection in the PLURAL key — `{"scripts": [...]}` —

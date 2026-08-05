@@ -26,7 +26,13 @@ guarantee.
   and how often. Extension attributes are reported separately because they execute
   at every inventory collection. Detail requests are bounded by a concurrency limit
   and per-item failures are reported rather than failing the run.
-- `src/automations.ts` — pure scanning and policy-cadence helpers, mutation-checked.
+- `getInventoryCollectionSettings` — reads the tenant inventory collection settings and
+  rates each option by cost per collection, flagging `home_directory_sizes` as high
+  because Jamf computes it by running `du` across every user home directory. The
+  companion to `findExpensiveAutomations`, since that work lives in a tenant setting
+  rather than in any script.
+- `src/automations.ts` — pure scanning, policy-cadence and inventory-cost helpers,
+  mutation-checked.
 
 ### Fixed
 

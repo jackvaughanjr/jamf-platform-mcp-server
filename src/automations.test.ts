@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  assessInventoryCollection,
   classifyPolicyCadence,
   extractClassicDetail,
   extractClassicList,
@@ -180,5 +181,41 @@ describe('mapWithConcurrency', () => {
   it('processes every item when concurrency exceeds the list length', async () => {
     const out = await mapWithConcurrency([1, 2], 10, async (n) => n * 2);
     expect(out).toEqual([2, 4]);
+  });
+});
+
+describe('assessInventoryCollection', () => {
+  it('flags home_directory_sizes as the high-cost option that runs du', () => {
+    const a = assessInventoryCollection({ home_directory_sizes: true });
+    expect(a.enabledHighCost).toEqual(['home_directory_sizes']);
+    const finding = a.findings.find((f) => f.setting === 'home_directory_sizes');
+    expect(finding?.cost).toBe('high');
+    expect(finding?.why).toMatch(/du/);
+  });
+
+  it('reports nothing high-cost when it is off', () => {
+    expect(assessInventoryCollection({ home_directory_sizes: false }).enabledHighCost).toEqual([]);
+  });
+
+  // The misspelling is Jamf's, in the live API. Accepting only the corrected
+  // spelling would silently read as "not enabled".
+  it('accepts both the misspelled and corrected include_* keys', () => {
+    const typo = assessInventoryCollection({ inclue_fonts: true });
+    const fixed = assessInventoryCollection({ include_fonts: true });
+    const enabled = (a: ReturnType<typeof assessInventoryCollection>) =>
+      a.findings.filter((f) => f.enabled).map((f) => f.setting);
+    expect(enabled(typo)).toEqual(['inclue_fonts / include_fonts']);
+    expect(enabled(fixed)).toEqual(['inclue_fonts / include_fonts']);
+  });
+
+  it('counts custom search paths, which each add a walk', () => {
+    const a = assessInventoryCollection({ applications: [{}, {}], fonts: [{}], plugins: [] });
+    expect(a.customSearchPaths).toEqual({ applications: 2, fonts: 1, plugins: 0 });
+  });
+
+  it('treats a missing settings object as nothing enabled without throwing', () => {
+    const a = assessInventoryCollection(undefined);
+    expect(a.enabledHighCost).toEqual([]);
+    expect(a.findings.every((f) => f.enabled === false)).toBe(true);
   });
 });

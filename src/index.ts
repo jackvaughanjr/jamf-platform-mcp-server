@@ -6,11 +6,13 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 import {
+  assessInventoryCollection,
   classifyPolicyCadence,
   extractClassicDetail,
   extractClassicList,
   mapWithConcurrency,
   scanForExpensiveCommands,
+  type InventoryCollectionSettings,
   type PolicyGeneral,
 } from './automations.js';
 import { loadConfig } from './config.js';
@@ -641,6 +643,66 @@ server.registerTool(
           'the most likely cause of constant background CPU. Jamf inventory collection itself ' +
           'can also compute disk usage — check the tenant inventory settings if nothing here ' +
           'explains the load.',
+      });
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+/**
+ * Reads inventory collection settings and rates them by cost.
+ *
+ * The companion to findExpensiveAutomations: that tool audits scripts, policies and
+ * extension attributes, but `du` is often not in any script at all — Jamf computes
+ * home directory sizes itself, as a tenant setting, by running `du` across every
+ * user home. Nothing in the policy list reveals it.
+ *
+ * These options run on EVERY inventory collection, so their cost multiplies by
+ * however often inventory is triggered. A policy that updates inventory at every
+ * check-in turns each one into roughly every-15-minutes work.
+ */
+server.registerTool(
+  'getInventoryCollectionSettings',
+  {
+    title: 'Inventory collection settings',
+    description:
+      'Read the tenant computer inventory collection settings and rate each option by ' +
+      'how much work it adds per collection. Flags home_directory_sizes as high cost ' +
+      'because Jamf computes it by running `du` across every user home directory — the ' +
+      'usual cause of a du process under JamfDaemon burning battery. Pair with ' +
+      'findExpensiveAutomations, which shows how often inventory is actually triggered.',
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const body = await client.request<Record<string, unknown>>({
+        service: 'proclassic',
+        rawPath: `/tenant/${config.tenantId}/computerinventorycollection`,
+      });
+      const settings = extractClassicDetail<InventoryCollectionSettings>(body, [
+        'computer_inventory_collection',
+        'computer_inventory_collection_preferences',
+      ]);
+      if (!settings) {
+        // Say what came back rather than reporting an empty assessment, which would
+        // read as "nothing enabled".
+        return asError(
+          new Error(
+            'could not find inventory collection settings in the response. Top-level keys: ' +
+              (body && typeof body === 'object' ? Object.keys(body).join(', ') : '(none)'),
+          ),
+        );
+      }
+      const assessment = assessInventoryCollection(settings);
+      return asContent({
+        ...assessment,
+        note:
+          assessment.enabledHighCost.length > 0
+            ? 'A high-cost option is enabled. Multiply its cost by how often inventory runs — ' +
+              'check for a policy that updates inventory on every check-in.'
+            : 'No high-cost collection option is enabled; look at extension attributes and ' +
+              'policy cadence instead.',
       });
     } catch (error) {
       return asError(error);
