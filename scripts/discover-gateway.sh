@@ -126,48 +126,43 @@ PROBES=(
 
   "blueprints|blueprints|blueprints|tenant"
 
-  # `components` under blueprints is an unknown route (BAD_PERMISSIONS, same as
-  # the bogus-route control). Sweep plausible names and both styles.
-  "blueprint-components|blueprints|components blueprint-components available-components component-definitions|tenant flat"
+  # CONFIRMED: resource is `blueprint-components`, not `components`. Resource
+  # names are fully qualified even under their own service.
+  "blueprint-components|blueprints|blueprint-components|tenant"
   "devices|devices|devices|tenant"
   "device-groups|device-groups|device-groups|tenant"
 
-  # CONFIRMED: segment compliance-benchmarks, style flat (no tenant segment),
-  # 403 pending a compliance read scope on the integration.
+  # Canary, not discovery. The segment is refused wholesale, so this one probe
+  # exists only to notice if Jamf ever unblocks it. A 200 or a BAD_PERMISSIONS
+  # here — anything other than the gateway's "Requested endpoint is forbidden" —
+  # means the segment opened up and is worth probing properly again.
   "compliance-benchmarks|compliance-benchmarks|benchmarks|flat"
 
   # CONFIRMED: segment pro, style tenant. Unlocks the 300+ Jamf Pro API surface.
   "jamf-pro|pro|account-groups|tenant"
 
-  # Service enumeration proved `declarations` and `declaration-reporting` are NOT
-  # hosted segments, so this lives inside `devices` or `pro`. Its doc slugs are
-  # operation names — getdevicereport, getdevicechannels, getdeclarationreport —
-  # so these are the resource names those imply, applying the lesson from
-  # blueprint-components that names are fully qualified.
-  "declaration-reporting|devices pro|device-channels declaration-reports device-reports device-declarations|tenant flat"
-
-  # Classic: `classic`, `jamf-pro-classic` and `jssresource` are all NOT hosted,
-  # so Classic must be served under `pro`. Its doc slugs settle the shape —
-  # creategroupbyid_tenant_tenantid_accounts_groupname_name encodes
-  # /tenant/{tenantid}/accounts/groupname/{name}, i.e. NO /JSSResource/ prefix
-  # and NO version segment. Every earlier probe carried a prefix that does not
-  # exist. raw style is the only one that can express this.
-  # Group names must be unique — they key the raw/shape filenames, so a duplicate
-  # silently overwrites the other's fixtures.
-  "jamf-pro-classic-noversion|pro|/tenant/{TENANT}/buildings /tenant/{TENANT}/categories /tenant/{TENANT}/accounts|raw"
-
-  # NOT Classic — mislabelled in an earlier run. /api/pro/v1/tenant/{t}/buildings
-  # returns 200 but with the Jamf Pro API's shape ({totalCount, results[]} and
-  # streetAddress1/stateProvince/zipPostalCode fields), whereas Classic wraps as
-  # {"buildings":[...]}. So this probe confirms another Jamf Pro API resource and
-  # says nothing about Classic. Kept as a Pro-API sample.
+  # A second Jamf Pro API resource, kept as a regression check that `pro` still
+  # serves more than one route. NOT Classic: it returns the Pro API's shape
+  # ({totalCount, results[]}, streetAddress1/stateProvince), whereas Classic
+  # wraps as {"buildings":[...]}. An earlier run mislabelled this as Classic.
   "jamf-pro-api-buildings|pro|buildings|tenant"
 
-  # Classic proper. Distinguishable ONLY by response shape: Classic wraps in a
-  # named key ({"buildings":[...]}), Pro API uses {totalCount, results[]}. These
-  # resources exist ONLY in Classic — there is no Jamf Pro API equivalent — so a
-  # 200 here cannot be confused with a Pro API hit.
-  "jamf-pro-classic|pro|activationcode allowedfileextensions diskencryptionconfigurations|tenant flat"
+  # ── RETIRED PROBES ─────────────────────────────────────────────────────────
+  # Removed rather than left running, because each cost requests every run and
+  # returned the same negative. Restore only if Jamf confirms exposure.
+  #
+  # declaration-reporting — 16 candidates under devices and pro, all failed. No
+  #   hosted segment (declarations, declaration-reporting, ddm, declarative,
+  #   device-declarations, declaration-reports, reporting all 404).
+  #
+  # jamf-pro-classic — four strategies failed: /JSSResource/ prefixed,
+  #   tenant-scoped /JSSResource/, and Classic-only resource names
+  #   (activationcode, allowedfileextensions, diskencryptionconfigurations)
+  #   under pro, both versioned and flat. No classic/jamf-pro-classic/jssresource
+  #   segment is hosted. Appears not to be exposed through the gateway yet.
+  #
+  # compliance-benchmarks — segment-level refusal; a bogus route under it gets
+  #   the identical gateway 403, so no path can succeed until that changes.
 )
 
 # Group names key the raw/shape/error filenames, so a duplicate silently

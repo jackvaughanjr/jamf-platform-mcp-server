@@ -127,9 +127,15 @@ status code alone was actively misleading.
 
 Resolved against a live tenant on 2026-08-04 (`fixtures/discovery-report.md`):
 
-**Four groups are confirmed. Four are not.** An earlier revision of this file
-claimed all eight were resolved; that was wrong, and the negative controls
-disproved it.
+**Discovery is complete enough to build on. Six routes confirmed; three groups
+are dead ends with well-supported negative findings.**
+
+Every confirmed route has the same shape, and it is the only shape ever seen to
+return 200:
+
+```
+/api/{service}/{version}/tenant/{tenantId}/{resource}
+```
 
 Confirmed working (200):
 
@@ -147,14 +153,49 @@ Confirmed working (200):
 assumption produced three passes of 403s. Its records are also keyed
 `identifier`, not `id`, and carry `meta.supportedOs.{macOS,iOS,tvOS}[].version`.
 
-Not resolved — the path is wrong, not the permission:
+`pro` is the Jamf Pro API in full — 300+ endpoints, confirmed with two resources
+(`account-groups`, `buildings`). Versions are per-resource, so pass `version`
+explicitly.
 
-| group | last attempt | signal |
-|---|---|---|
-| Blueprint components | `/api/blueprints/v1/tenant/{t}/components` | 403 BAD_PERMISSIONS |
-| Declaration Reporting | `/api/pro/v1/tenant/{t}/devices/{id}/declarations` | 403 BAD_PERMISSIONS |
-| Jamf Pro Classic | `/api/pro/JSSResource/tenant/{t}/buildings` | 403 BAD_PERMISSIONS |
-| Compliance Benchmarks | `/api/compliance-benchmarks/v1/benchmarks` | 403 gateway-level refusal |
+### Dead ends — stop probing these
+
+**Jamf Pro Classic is not reachable.** Four strategies all failed: `/JSSResource/`
+prefixed, tenant-scoped `/JSSResource/`, and bare Classic-only resource names
+(`activationcode`, `allowedfileextensions`, `diskencryptionconfigurations`) under
+`pro` both versioned and flat. No `classic`, `jamf-pro-classic`, or `jssresource`
+segment is hosted. It has a docs section but appears not to be exposed yet.
+
+**Declaration Reporting is not reachable.** No hosted segment, and 16 route
+candidates under `devices` and `pro` all failed.
+
+**Compliance Benchmarks is blocked at the segment level.** A bogus route under it
+returns the same gateway-level 403 as a real one, so the whole segment is refused
+rather than any particular path. Nothing under it can work until that changes.
+
+These are questions for Jamf, not for more probing. The documentation has already
+proven wrong three times — Declaration Reporting's tenant segment,
+`device-management-actions` vs `device-actions`, and Classic's path shape — so a
+docs section is not evidence a route exists.
+
+### `flat` style does not work
+
+No confirmed route uses it. Every flat request returns 400
+`REQUEST_CONTEXT_NOT_PROVIDED`, **including one to a route that cannot exist** —
+proven by `_control-bogus-flat-route`. So the gateway resolves tenant context
+before routing and rejects any path without it, and a 400 is silent about whether
+the route exists. Ten header spellings (`X-Jamf-Tenant-Id`, `X-Tenant-Id`,
+`Jamf-Tenant`, …) were all ignored.
+
+The error text says context may come "in token or headers", which hints a token
+could be bound to a tenant at issue time. Untested, and not worth chasing while
+`tenant` style works.
+
+### `device-actions` is hosted but unverified
+
+The segment exists, but every route in it is a write (`erase`, `restart`,
+`shutdown`, `unmanage`, `check-in`) gated on `execute:pro:device-actions`. A
+read-only integration cannot confirm any route there, which is the correct
+outcome — do not add write scopes just to satisfy discovery.
 
 ### Four findings that override the documentation
 

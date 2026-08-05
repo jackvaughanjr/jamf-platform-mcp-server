@@ -44,10 +44,18 @@ export interface RequestOptions {
    */
   rawPath?: string;
   /**
-   * Path layout. `tenant` (default) is the new APIs and Jamf Pro:
-   * `/{version}/tenant/{tenantId}/{resource}`. `flat` omits the tenant segment,
-   * which some groups' documented paths do — Declaration Reporting is published
-   * as `/v1/devices/{deviceId}/declarations`, with no tenant at all.
+   * Path layout. `tenant` (default) is `/{version}/tenant/{tenantId}/{resource}`
+   * and is the ONLY layout ever observed to return 200.
+   *
+   * `flat` omits the tenant segment because some documented paths show none
+   * (Declaration Reporting is published as `/v1/devices/{deviceId}/declarations`).
+   * It has never worked. Every flat request — including one to a route that
+   * cannot exist — returns 400 REQUEST_CONTEXT_NOT_PROVIDED, so the gateway
+   * resolves tenant context before routing and rejects any path lacking it.
+   * Ten candidate tenant-header spellings were all ignored. Retained only
+   * because the error text says context may come "in token or headers", which
+   * hints the token could be bound to a tenant at issue time — untested.
+   * Prefer `tenant`.
    */
   style?: 'tenant' | 'flat';
   /**
