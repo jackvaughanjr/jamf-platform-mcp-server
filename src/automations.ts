@@ -309,6 +309,77 @@ export function extractClassicDetail<T>(
   return undefined;
 }
 
+/** A criterion inside a smart group or advanced search. */
+export interface JamfCriterion {
+  name?: string;
+  search_type?: string;
+  value?: string | number | boolean | null;
+  priority?: number;
+  and_or?: string;
+}
+
+export interface CriterionMatch {
+  criterion: string;
+  searchType?: string;
+  value?: string;
+  matchedOn: 'name' | 'value' | 'name+value';
+}
+
+/** Renders a criterion value for display without asserting it is a string. */
+function valueToString(value: JamfCriterion['value']): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  return String(value);
+}
+
+/**
+ * Finds criteria whose field name or value mentions `query`.
+ *
+ * Both are checked because either can be the reference you care about: a criterion
+ * on "Home Directory Size" names the field, while a criterion on an extension
+ * attribute might carry the interesting term in its value instead.
+ */
+export function findCriterionMatches(
+  criteria: JamfCriterion[] | null | undefined,
+  query: string,
+): CriterionMatch[] {
+  const q = query.trim().toLowerCase();
+  if (!q || !Array.isArray(criteria)) return [];
+
+  const matches: CriterionMatch[] = [];
+  for (const c of criteria) {
+    const name = c.name ?? '';
+    const value = valueToString(c.value) ?? '';
+    const inName = name.toLowerCase().includes(q);
+    const inValue = value.toLowerCase().includes(q);
+    if (!inName && !inValue) continue;
+    matches.push({
+      criterion: name || '(unnamed)',
+      searchType: c.search_type,
+      value: valueToString(c.value),
+      matchedOn: inName && inValue ? 'name+value' : inName ? 'name' : 'value',
+    });
+  }
+  return matches;
+}
+
+/**
+ * Finds display fields mentioning `query`.
+ *
+ * An advanced search that merely *displays* a field is still consuming it, even
+ * though it does not filter on it — so checking criteria alone would wrongly
+ * report a field as unused.
+ */
+export function findDisplayFieldMatches(
+  displayFields: Array<{ name?: string }> | null | undefined,
+  query: string,
+): string[] {
+  const q = query.trim().toLowerCase();
+  if (!q || !Array.isArray(displayFields)) return [];
+  return displayFields
+    .map((f) => f.name)
+    .filter((n): n is string => typeof n === 'string' && n.toLowerCase().includes(q));
+}
+
 /**
  * Runs `worker` over `items` with at most `concurrency` in flight.
  *

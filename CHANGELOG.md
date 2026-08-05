@@ -31,8 +31,12 @@ guarantee.
   because Jamf computes it by running `du` across every user home directory. The
   companion to `findExpensiveAutomations`, since that work lives in a tenant setting
   rather than in any script.
-- `src/automations.ts` — pure scanning, policy-cadence and inventory-cost helpers,
-  mutation-checked.
+- `findCriteriaReferences` — searches smart computer group criteria, advanced computer
+  search criteria AND advanced search display fields for a term, to establish whether
+  anything consumes an inventory field before its collection is disabled. Reports what
+  it did not check, because "no references found" is weaker evidence than a hit.
+- `src/automations.ts` — pure scanning, policy-cadence, inventory-cost and
+  criteria-matching helpers, mutation-checked.
 
 ### Fixed
 

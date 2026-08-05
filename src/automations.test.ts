@@ -5,6 +5,8 @@ import {
   classifyPolicyCadence,
   extractClassicDetail,
   extractClassicList,
+  findCriterionMatches,
+  findDisplayFieldMatches,
   mapWithConcurrency,
   scanForExpensiveCommands,
 } from './automations.js';
@@ -217,5 +219,64 @@ describe('assessInventoryCollection', () => {
     const a = assessInventoryCollection(undefined);
     expect(a.enabledHighCost).toEqual([]);
     expect(a.findings.every((f) => f.enabled === false)).toBe(true);
+  });
+});
+
+describe('findCriterionMatches', () => {
+  const criteria = [
+    { name: 'Home Directory Size (MB)', search_type: 'more than', value: 200000, priority: 0 },
+    { name: 'Operating System Version', search_type: 'like', value: '26', priority: 1 },
+    { name: 'Extension Attribute', search_type: 'is', value: 'home directory audit', priority: 2 },
+  ];
+
+  it('matches on the criterion field name', () => {
+    const m = findCriterionMatches(criteria, 'Home Directory');
+    expect(m.map((x) => x.criterion)).toContain('Home Directory Size (MB)');
+    expect(m.find((x) => x.criterion.startsWith('Home'))?.matchedOn).toBe('name');
+  });
+
+  // The interesting term can live in the value instead of the field name.
+  it('matches on the criterion value too', () => {
+    const m = findCriterionMatches(criteria, 'home directory audit');
+    expect(m).toHaveLength(1);
+    expect(m[0]?.matchedOn).toBe('value');
+  });
+
+  it('reports name+value when both match', () => {
+    const m = findCriterionMatches([{ name: 'Home', value: 'home' }], 'home');
+    expect(m[0]?.matchedOn).toBe('name+value');
+  });
+
+  it('stringifies non-string values rather than dropping them', () => {
+    const m = findCriterionMatches([{ name: 'Size', value: 200000 }], '200000');
+    expect(m[0]?.value).toBe('200000');
+  });
+
+  it('returns nothing for an empty query, missing criteria, or no match', () => {
+    expect(findCriterionMatches(criteria, '')).toEqual([]);
+    expect(findCriterionMatches(criteria, '   ')).toEqual([]);
+    expect(findCriterionMatches(null, 'home')).toEqual([]);
+    expect(findCriterionMatches(criteria, 'bluetooth')).toEqual([]);
+  });
+
+  it('tolerates criteria with null values and missing names', () => {
+    expect(findCriterionMatches([{ value: null }, {}], 'x')).toEqual([]);
+    expect(findCriterionMatches([{ value: 'x' }], 'x')[0]?.criterion).toBe('(unnamed)');
+  });
+});
+
+describe('findDisplayFieldMatches', () => {
+  // A search that only DISPLAYS a field still consumes it; checking criteria alone
+  // would report the field as unused.
+  it('finds a displayed field', () => {
+    expect(
+      findDisplayFieldMatches([{ name: 'IP Address' }, { name: 'Home Directory Size (MB)' }], 'home directory'),
+    ).toEqual(['Home Directory Size (MB)']);
+  });
+
+  it('returns nothing for an empty query or absent display fields', () => {
+    expect(findDisplayFieldMatches([{ name: 'x' }], '')).toEqual([]);
+    expect(findDisplayFieldMatches(undefined, 'home')).toEqual([]);
+    expect(findDisplayFieldMatches([{}], 'home')).toEqual([]);
   });
 });

@@ -10,9 +10,12 @@ import {
   classifyPolicyCadence,
   extractClassicDetail,
   extractClassicList,
+  findCriterionMatches,
+  findDisplayFieldMatches,
   mapWithConcurrency,
   scanForExpensiveCommands,
   type InventoryCollectionSettings,
+  type JamfCriterion,
   type PolicyGeneral,
 } from './automations.js';
 import { loadConfig } from './config.js';
@@ -703,6 +706,150 @@ server.registerTool(
               'check for a policy that updates inventory on every check-in.'
             : 'No high-cost collection option is enabled; look at extension attributes and ' +
               'policy cadence instead.',
+      });
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+/**
+ * Finds what actually consumes an inventory field.
+ *
+ * Answers "can I turn this collection setting off" — the question that decides
+ * whether an expensive setting is load-bearing. Smart group criteria live in
+ * Classic's `computergroups`, not the newer `device-groups` segment, which returns
+ * membership without criteria.
+ *
+ * Advanced searches are checked on BOTH criteria and `display_fields`: a saved
+ * search that merely displays a column is still a consumer, so checking filters
+ * alone would report a field as unused when a report shows it every week.
+ */
+server.registerTool(
+  'findCriteriaReferences',
+  {
+    title: 'Find criteria references',
+    description:
+      'Search smart computer group criteria, advanced computer search criteria, and ' +
+      'advanced search display fields for a term — e.g. "Home Directory" to find out ' +
+      'whether anything consumes that inventory field before disabling its collection. ' +
+      'Matches field names and criterion values, case-insensitively. Reports what it ' +
+      'did NOT check, because "no references found" is a weaker claim than a hit.',
+    inputSchema: {
+      query: z
+        .string()
+        .min(2)
+        .describe('Term to look for in criterion names, criterion values and display fields'),
+      concurrency: z.number().int().positive().max(16).optional().describe('Parallel detail requests. Defaults to 6.'),
+    },
+  },
+  async ({ query, concurrency }) => {
+    const parallel = concurrency ?? 6;
+    const errors: Record<string, string> = {};
+
+    async function classicList2<T>(resource: string, keys: string[]): Promise<T[]> {
+      const body = await client.request<Record<string, unknown>>({
+        service: 'proclassic',
+        rawPath: `/tenant/${config.tenantId}/${resource}`,
+      });
+      return extractClassicList<T>(body, keys).items;
+    }
+
+    try {
+      const [groupStubs, searchStubs] = await Promise.all([
+        classicList2<{ id: number; name: string }>('computergroups', ['computer_groups', 'computer_group']).catch(
+          (e) => {
+            errors.computerGroups = legError(e);
+            return [];
+          },
+        ),
+        classicList2<{ id: number; name: string }>('advancedcomputersearches', [
+          'advanced_computer_searches',
+          'advanced_computer_search',
+        ]).catch((e) => {
+          errors.advancedSearches = legError(e);
+          return [];
+        }),
+      ]);
+
+      let smartGroupCount = 0;
+
+      const groupHits = await mapWithConcurrency(groupStubs, parallel, async (stub) => {
+        try {
+          const group = await client
+            .request<Record<string, unknown>>({
+              service: 'proclassic',
+              rawPath: `/tenant/${config.tenantId}/computergroups/id/${stub.id}`,
+            })
+            .then((b) =>
+              extractClassicDetail<{ name?: string; is_smart?: boolean; criteria?: JamfCriterion[] }>(b, [
+                'computer_group',
+              ]),
+            );
+          // Static groups have no criteria; counting them as scanned would overstate
+          // the coverage of this search.
+          if (!group?.is_smart) return null;
+          smartGroupCount += 1;
+          const matches = findCriterionMatches(group.criteria, query);
+          return matches.length > 0 ? { id: stub.id, name: group.name ?? stub.name, matches } : null;
+        } catch (error) {
+          errors[`computerGroup:${stub.id}`] = legError(error);
+          return null;
+        }
+      });
+
+      const searchHits = await mapWithConcurrency(searchStubs, parallel, async (stub) => {
+        try {
+          const search = await client
+            .request<Record<string, unknown>>({
+              service: 'proclassic',
+              rawPath: `/tenant/${config.tenantId}/advancedcomputersearches/id/${stub.id}`,
+            })
+            .then((b) =>
+              extractClassicDetail<{
+                name?: string;
+                criteria?: JamfCriterion[];
+                display_fields?: Array<{ name?: string }>;
+              }>(b, ['advanced_computer_search']),
+            );
+          const criteriaMatches = findCriterionMatches(search?.criteria, query);
+          const displayFieldMatches = findDisplayFieldMatches(search?.display_fields, query);
+          if (criteriaMatches.length === 0 && displayFieldMatches.length === 0) return null;
+          return { id: stub.id, name: search?.name ?? stub.name, criteriaMatches, displayFieldMatches };
+        } catch (error) {
+          errors[`advancedSearch:${stub.id}`] = legError(error);
+          return null;
+        }
+      });
+
+      const smartGroups = groupHits.filter((g): g is NonNullable<typeof g> => g !== null);
+      const advancedSearches = searchHits.filter((s): s is NonNullable<typeof s> => s !== null);
+      const total = smartGroups.length + advancedSearches.length;
+
+      return asContent({
+        query,
+        scanned: {
+          computerGroups: groupStubs.length,
+          ofWhichSmart: smartGroupCount,
+          advancedComputerSearches: searchStubs.length,
+        },
+        smartGroupsReferencing: smartGroups,
+        advancedSearchesReferencing: advancedSearches,
+        totalReferences: total,
+        // A null result here is evidence, but not proof — say what is out of scope
+        // rather than letting "0 references" read as "definitely unused".
+        notChecked: [
+          'Jamf Pro built-in dashboards and canned reports',
+          'anything querying the API directly from outside Jamf',
+          'mobile device groups and searches (irrelevant for computer inventory fields)',
+          'static group membership, which has no criteria to search',
+          'exports or spreadsheets maintained outside Jamf',
+        ],
+        verdict:
+          total === 0
+            ? `No smart group or advanced search references "${query}". That is good evidence it is unused, but see notChecked before treating it as proof.`
+            : `${total} object(s) reference "${query}" — review them before disabling the underlying collection.`,
+        ...(Object.keys(errors).length > 0 ? { partialFailures: errors } : {}),
       });
     } catch (error) {
       return asError(error);
