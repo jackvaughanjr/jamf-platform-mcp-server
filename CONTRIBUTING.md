@@ -44,10 +44,13 @@ npm run inspector
 
 ## Adding support for an endpoint
 
-1. **Confirm the route empirically first.** A documentation section is not evidence
-   the route exists — three documented API groups are unreachable, and the docs
-   have been wrong three times about path shape. Add a probe to
-   `scripts/discover-gateway.sh` and run it.
+1. **Read the endpoint's own reference page on developer.jamf.com, then verify it
+   live.** Each operation page publishes its exact base URL and path. Probing
+   candidates while reading only the index `llms.txt` files led to three API groups
+   being wrongly declared unreachable — their paths were published the whole time.
+   The docs have also been wrong about path shape, so a documented path still needs
+   a probe in `scripts/discover-gateway.sh`. Read first, then verify; do not guess
+   instead of reading.
 2. Read `docs/gateway-reference.md` for the status-code semantics. A 403
    `BAD_PERMISSIONS` means the *route* is wrong, not the permission; a 400 says
    nothing about existence.

@@ -70,9 +70,12 @@ Only JSON-RPC may go to stdout. Logs go to stderr. `dotenv` is loaded with
 
 ## Before adding a tool
 
-1. Confirm the route empirically — a docs section is not evidence it exists. Three
-   documented API groups are unreachable
-   ([JPM-0005](decisions/JPM-0005-unsupported-api-groups.md)).
+1. **Read the endpoint's own reference page on developer.jamf.com first** — it
+   publishes the exact base URL and path. Probing candidates while consulting only
+   the index `llms.txt` files led to three API groups being wrongly declared
+   unreachable
+   ([JPM-0006](decisions/JPM-0006-classic-and-declaration-reporting-are-supported.md)).
+   Then verify it live: the docs have also been wrong about path shape.
 2. Pass `version` explicitly; Jamf Pro versions are per-resource.
 3. Prefer extending `platformRequest` usage over adding a typed tool until a
    workflow justifies one

@@ -45,6 +45,10 @@ The distinction matters because ADRs are immutable and findings are not.
   one tool per endpoint.
 - [JPM-0004](JPM-0004-type-only-fixtures.md): Commit type-only schemas derived
   from gateway responses; never commit the responses themselves.
-- [JPM-0005](JPM-0005-unsupported-api-groups.md): Ship v1 without Jamf Pro
-  Classic, Declaration Reporting, or Compliance Benchmarks, because the gateway
-  does not expose them.
+- [JPM-0005](JPM-0005-unsupported-api-groups.md): **Superseded by JPM-0006.** Ship
+  v1 without Jamf Pro Classic, Declaration Reporting, or Compliance Benchmarks,
+  because the gateway does not expose them. This conclusion was false.
+- [JPM-0006](JPM-0006-classic-and-declaration-reporting-are-supported.md): Support
+  Classic (`proclassic`) and Declaration Reporting (`ddm/report`), whose paths were
+  published all along; treat Compliance Benchmarks as blocked by a fault on Jamf's
+  side. Read the endpoint reference page before probing.

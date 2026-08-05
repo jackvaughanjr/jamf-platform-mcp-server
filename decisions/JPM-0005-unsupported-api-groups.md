@@ -1,7 +1,14 @@
 # JPM-0005: Ship v1 without Classic, Declaration Reporting, or Compliance Benchmarks
 
-- **Status:** Accepted
+- **Status:** Superseded by
+  [JPM-0006](JPM-0006-classic-and-declaration-reporting-are-supported.md) (2026-08-05)
 - **Date:** 2026-08-04
+
+> **This record's conclusion is false.** All three groups are reachable or have
+> confirmed-correct paths. It is retained unedited because it was acted upon, and
+> because how it went wrong is worth keeping: the paths were never read from the
+> individual endpoint reference pages, only guessed at from index files. See
+> JPM-0006.
 
 ## Context
 

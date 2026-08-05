@@ -22,8 +22,8 @@ versions may break.
 
 > **The upstream API is a public beta.** The Platform API Gateway has no published
 > breaking-change protocol and no announced GA date. Pin dependencies and expect
-> churn. Three documented API groups are not reachable at all
-> ([JPM-0005](decisions/JPM-0005-unsupported-api-groups.md)).
+> churn. One documented API group (Compliance Benchmarks) currently returns a
+> gateway-side 500 ([JPM-0006](decisions/JPM-0006-classic-and-declaration-reporting-are-supported.md)).
 
 ## Provenance
 
@@ -75,18 +75,24 @@ scripts/
 
 Working and confirmed against a live tenant:
 
-| segment | resource | notes |
-|---|---|---|
-| `blueprints` | `blueprints` | `totalCount`-only envelope |
-| `blueprints` | `blueprint-components` | records keyed `identifier`, not `id` |
-| `devices` | `devices` | full paging envelope; spans macOS **and** iOS |
-| `device-groups` | `device-groups` | full envelope; exposes `memberCount` |
-| `pro` | 300+ resources | the Jamf Pro API in full |
+| segment | style | resource | notes |
+|---|---|---|---|
+| `blueprints` | tenant | `blueprints` | `totalCount`-only envelope |
+| `blueprints` | tenant | `blueprint-components` | records keyed `identifier`, not `id` |
+| `devices` | tenant | `devices` | full paging envelope; spans macOS **and** iOS |
+| `device-groups` | tenant | `device-groups` | full envelope; exposes `memberCount` |
+| `pro` | tenant | 300+ resources | the Jamf Pro API in full |
+| `proclassic` | raw | `/tenant/{t}/{resource}` | Jamf Pro Classic — no version segment |
+| `ddm/report` | tenant | `devices/{id}/channels` | Declaration Reporting |
 
-**Not supported**, because the gateway does not expose them: Jamf Pro Classic,
-Declaration Reporting, Compliance Benchmarks. This is an evidenced conclusion, not
-an omission — see [JPM-0005](decisions/JPM-0005-unsupported-api-groups.md) and
-[`docs/gateway-reference.md`](docs/gateway-reference.md).
+**Compliance Benchmarks** has a correct, documented path but returns 500
+`{"error":"Upstream host lookup failed"}` — the gateway routes it and cannot reach
+its own backend. A fault on Jamf's side, not something a client can work around.
+
+An earlier revision of this file claimed Classic, Declaration Reporting and
+Compliance Benchmarks were simply not exposed. That was wrong; see
+[JPM-0006](decisions/JPM-0006-classic-and-declaration-reporting-are-supported.md),
+which supersedes JPM-0005 and explains how the error happened.
 
 Tools: `getFleetOverview`, `findDevices` and `findOutdatedDevices` (compound),
 `listBlueprints` (typed), and `platformRequest` (authenticated passthrough to any

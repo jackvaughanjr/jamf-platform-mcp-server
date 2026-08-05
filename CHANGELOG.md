@@ -43,9 +43,16 @@ guarantee.
 
 ### Known limitations
 
-- Jamf Pro Classic, Declaration Reporting, and Compliance Benchmarks are not
-  supported: the gateway does not expose them
-  ([JPM-0005](decisions/JPM-0005-unsupported-api-groups.md)).
+- Compliance Benchmarks is unusable: the documented path routes but the gateway
+  returns 500 `{"error":"Upstream host lookup failed"}`. A fault on Jamf's side
+  ([JPM-0006](decisions/JPM-0006-classic-and-declaration-reporting-are-supported.md)).
+- `requestAll` does not work for Jamf Pro Classic — Classic wraps responses in a
+  named key with no `results[]`, `totalCount` or paging envelope.
+- `requestAll` is wrong for Declaration Reporting as written: that group paginates
+  with `page` and **`size`**, not `page-size`, so the parameter is ignored and the
+  default page size of 20 applies silently.
+- No typed tools for Classic or Declaration Reporting yet; both are reachable via
+  `platformRequest`.
 - `device-actions` is hosted but unverified — every route in it is a write, and no
   write scopes have been granted.
 

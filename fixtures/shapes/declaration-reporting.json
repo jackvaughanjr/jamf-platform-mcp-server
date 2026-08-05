@@ -1,0 +1,6 @@
+{
+  "deviceId": "string",
+  "channels": [
+    "string"
+  ]
+}

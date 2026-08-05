@@ -6,24 +6,46 @@ as Jamf ships more of the gateway. Decisions live in [`decisions/`](../decisions
 
 Source of truth for the raw results: [`fixtures/discovery-report.md`](../fixtures/discovery-report.md).
 
-## Path shape
+## Path shapes
 
-Every route confirmed working has one shape, and it is the only shape ever
-observed to return 200:
+Two shapes have returned 200. Both put the tenant in the path; nothing without it
+has ever worked.
 
 ```
-{base}/api/{service}/{version}/tenant/{tenantId}/{resource}
+{base}/api/{service}/{version}/tenant/{tenantId}/{resource}    most groups
+{base}/api/proclassic/tenant/{tenantId}/{resource}             Classic — NO version
 ```
+
+`{service}` may be **more than one segment**: Declaration Reporting is served at
+`/api/ddm/report/`. Anything that assumes a single segment will miss it.
 
 ## Confirmed routes
 
-| group | segment | resource | notes |
-|---|---|---|---|
-| Blueprints | `blueprints` | `blueprints` | envelope: `totalCount` only |
-| Blueprint components | `blueprints` | `blueprint-components` | records keyed `identifier`, not `id` |
-| Devices | `devices` | `devices` | full paging envelope |
-| Device Groups | `device-groups` | `device-groups` | full paging envelope; exposes `memberCount` |
-| Jamf Pro API | `pro` | *(300+ resources)* | confirmed with `account-groups`, `buildings` |
+| group | segment | style | resource | notes |
+|---|---|---|---|---|
+| Blueprints | `blueprints` | tenant | `blueprints` | envelope: `totalCount` only |
+| Blueprint components | `blueprints` | tenant | `blueprint-components` | records keyed `identifier`, not `id` |
+| Devices | `devices` | tenant | `devices` | full paging envelope |
+| Device Groups | `device-groups` | tenant | `device-groups` | full envelope; exposes `memberCount` |
+| Jamf Pro API | `pro` | tenant | *(300+ resources)* | confirmed with `account-groups`, `buildings` |
+| **Jamf Pro Classic** | **`proclassic`** | **raw** | `/tenant/{t}/{resource}` | no version; `{"activation_code":{…}}`-style named-key envelope |
+| **Declaration Reporting** | **`ddm/report`** | tenant | `devices/{id}/channels` | envelope: `deviceId`, `channels` |
+
+**Compliance Benchmarks:** path is correct —
+`/api/compliance-benchmarks/v1/tenant/{t}/benchmarks`, as documented — but returns
+**500 `{"error":"Upstream host lookup failed"}`**. The gateway routes it and cannot
+reach its own backend. Nothing a client can do; report it to Jamf. A canary probe
+remains in the discovery script.
+
+### Response conventions differ by group
+
+- **Classic** (`proclassic`) wraps in a named key with `snake_case` fields, has no
+  `results[]`, no `totalCount` and no paging envelope. `requestAll` does not apply.
+- **Declaration Reporting** (`ddm/report`) paginates with `page` and **`size`** — not
+  `page-size`. Sending `page-size` is silently ignored and yields the default 20.
+- **Newer groups** use `camelCase` with `results[]`.
+
+Nothing generic should assume one response shape.
 
 Three traps, each of which cost real time:
 
@@ -38,48 +60,37 @@ components is `blueprint-components`, not `components`, despite sitting under th
 **Jamf Pro versions are per-resource.** `account-groups` is v1, `enrollment` v3,
 `computers-inventory` v4. Never carry a version from one resource to the next.
 
-## ⚠️ Under revision — three "unreachable" groups have documented paths
+## Read the endpoint reference page first
 
-The conclusion recorded here and in
-[JPM-0005](../decisions/JPM-0005-unsupported-api-groups.md) — that Jamf Pro
-Classic, Declaration Reporting and Compliance Benchmarks are not exposed — was
-reached without reading the **individual endpoint reference pages**. Only index
-`llms.txt` files were consulted. Those pages publish the paths outright:
+Every individual operation page on `developer.jamf.com/platform-api/reference/`
+publishes its exact base URL and path. Several passes of this project probed
+candidate paths while consulting only the index `llms.txt` files, and concluded
+three API groups were unreachable. All three were reachable; the paths were simply
+never looked up. See
+[JPM-0006](../decisions/JPM-0006-classic-and-declaration-reporting-are-supported.md).
 
-| group | documented base + path |
-|---|---|
-| Jamf Pro Classic | `/api/proclassic` + `/tenant/{tenantId}/{resource}` — no version, no `/JSSResource/` |
-| Declaration Reporting | `/api/ddm/report` + `/v1/tenant/{tenantId}/devices/{deviceId}/channels` |
-| Compliance Benchmarks | `/api/compliance-benchmarks` + `/v1/tenant/{tenantId}/benchmarks` |
+**Probe to verify a documented path and to catch documentation that lies — not to
+discover paths from scratch.**
 
-Why each was missed:
-
-- **`proclassic` was never a candidate.** Probes tried `classic`,
-  `jamf-pro-classic`, `jssresource` and `pro`.
-- **`ddm/report` is a two-segment prefix.** Every probe assumed
-  `/api/{one-segment}/`, so `ddm` enumerated as "not hosted" even though the group
-  is served under it.
-- **Compliance Benchmarks takes a tenant segment.** Probing settled on the `flat`
-  variant, whose gateway-level 403 was misread as the whole segment being blocked.
-
-**Pending live verification.** These paths are documentation, and this project's
-documentation has been wrong repeatedly — they are not confirmed until a probe
-returns 200. `scripts/discover-gateway.sh` carries them now. JPM-0005 will be
-superseded once there is evidence either way.
-
-Also from those pages: Declaration Reporting paginates with **`page` and `size`**,
-not `page` and `page-size`. Paging parameter names are not uniform across groups,
-so `requestAll` is wrong for that group as written.
+The slugs in a group's `llms.txt` are URLs. `listcomponents` names the
+`blueprint-components` resource; `findactivationcode-1` names the `proclassic`
+segment; `getdevicechannels` names `ddm/report`.
 
 ## Hosted service segments
 
 Enumerable, because a route that cannot exist returns 403 under a hosted segment
 and 404 under one the gateway does not serve — so no valid route need be known.
 
-**Hosted:** `blueprints`, `devices`, `device-groups`, `pro`, `device-actions`
+**Blind spot:** this only probes the exact string given, so a **multi-segment**
+prefix reads as absent. `ddm` enumerates as not hosted while `ddm/report` is
+hosted. A negative result means "not hosted under this exact segment", never "not
+reachable".
 
-**Refused wholesale:** `compliance-benchmarks` — a nonsense route gets the same
-gateway-level 403 as a real one, so the entire segment is blocked.
+**Hosted:** `blueprints`, `devices`, `device-groups`, `pro`, `device-actions`,
+`proclassic`, `ddm/report`
+
+**Hosted but broken upstream:** `compliance-benchmarks` — routes, then 500s with
+`Upstream host lookup failed`.
 
 **Not hosted:** `classic`, `jamf-pro-classic`, `jssresource`, `jamf-pro`,
 `jamf-pro-api`, `declarations`, `declaration-reporting`,
@@ -202,20 +213,28 @@ Kept so nobody re-derives them:
 
 - ~~403 means the path is correct and the scope is missing~~ — it marks an unknown
   route; scopes were granted throughout.
-- ~~All eight documented groups are reachable~~ — five routes across four
-  segments are.
+- ~~All eight documented groups are reachable~~ — then over-corrected to five
+  routes across four segments. The true answer is seven groups reachable across
+  seven segments, plus one broken upstream.
 - ~~`pro` is an umbrella serving the Jamf Pro API, Classic, and Declaration
-  Reporting~~ — it serves the Jamf Pro API. The other two are unreachable.
-- ~~Classic lives at `/api/pro/JSSResource/tenant/{tenantId}/{resource}`~~ — that
-  returns BAD_PERMISSIONS. A 200 on `/api/pro/v1/tenant/{t}/buildings` was
-  misattributed to Classic; its `{totalCount, results[]}` envelope and
-  `streetAddress1`/`stateProvince` fields are the Jamf Pro API's schema, whereas
-  Classic wraps as `{"buildings":[...]}`.
-- ~~Declaration Reporting takes a tenant segment~~ — unproven; no route was found.
-- ~~Compliance Benchmarks works via `flat` style~~ — it never returned 200.
+  Reporting~~ — it serves the Jamf Pro API only. Classic is `proclassic`,
+  Declaration Reporting is `ddm/report`.
+- ~~Classic lives at `/api/pro/JSSResource/tenant/{tenantId}/{resource}`~~ — no
+  `/JSSResource/` prefix exists on the gateway at all. A 200 on
+  `/api/pro/v1/tenant/{t}/buildings` was also misattributed to Classic; that is the
+  Jamf Pro API's own buildings resource.
+- ~~Classic, Declaration Reporting and Compliance Benchmarks are not exposed~~ —
+  the biggest error in this project. All three have documented, correct paths;
+  Classic and Declaration Reporting return 200. Recorded as
+  [JPM-0005](../decisions/JPM-0005-unsupported-api-groups.md), superseded by
+  [JPM-0006](../decisions/JPM-0006-classic-and-declaration-reporting-are-supported.md).
+- ~~Compliance Benchmarks is blocked at the segment level~~ — it is hosted, the
+  path is right, and the gateway cannot reach its backend (500 upstream).
 
-The documentation itself was wrong three times: Declaration Reporting's published
-paths omit a tenant segment the gateway requires, Device Management Actions is
-`device-actions` rather than its documented group name, and Classic's path shape
-does not match its own doc slugs. **A docs section is not evidence a route
-exists.**
+**The recurring cause was method, not the documentation.** Four claims above came
+from probing candidate paths while reading only index files. The endpoint reference
+pages had the answers throughout. Where the docs *were* misleading — Declaration
+Reporting's published paths omit the tenant segment the gateway requires, and
+Device Management Actions is `device-actions` not its documented group name — that
+is a reason to verify a documented path, not a reason to guess instead of reading
+one.
