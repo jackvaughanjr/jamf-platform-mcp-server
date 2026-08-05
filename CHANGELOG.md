@@ -10,6 +10,10 @@ guarantee.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] — 2026-08-05
+
 ### Added
 
 - `findDeviceGroups` — search device groups by name or description across computer

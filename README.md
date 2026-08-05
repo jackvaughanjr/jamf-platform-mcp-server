@@ -96,7 +96,7 @@ Compliance Benchmarks were simply not exposed. That was wrong; see
 [JPM-0006](decisions/JPM-0006-classic-and-declaration-reporting-are-supported.md),
 which supersedes JPM-0005 and explains how the error happened.
 
-Tools: `getFleetOverview`, `findDevices`, `findOutdatedDevices`, `findDeviceGroups`
+Tools: `getFleetOverview`, `findDevices`, `findOutdatedDevices`, `findDeviceGroups`,
 `getDeviceGroupMembers`, `findExpensiveAutomations`, `getInventoryCollectionSettings`
 and `findCriteriaReferences` (compound), `listBlueprints` (typed), and
 `platformRequest` (authenticated passthrough to any gateway route). Tool count stays
