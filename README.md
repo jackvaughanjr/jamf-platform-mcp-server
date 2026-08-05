@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-72%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-90%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -54,6 +54,7 @@ src/
   platform-client.ts    every gateway concern — auth, token cache, URL shapes, paging
   config.ts             environment validation (zod)
   fleet.ts              pure fleet aggregation — no client, no clock, no I/O
+  automations.ts        script/policy auditing: expensive-command scan, policy cadence
   *.test.ts             unit tests (vitest)
 decisions/              architectural decision records, JPM- prefix, immutable
 docs/
@@ -95,7 +96,7 @@ Compliance Benchmarks were simply not exposed. That was wrong; see
 which supersedes JPM-0005 and explains how the error happened.
 
 Tools: `getFleetOverview`, `findDevices`, `findOutdatedDevices`, `findDeviceGroups`
-and `getDeviceGroupMembers` (compound), `listBlueprints` (typed), and
+`getDeviceGroupMembers` and `findExpensiveAutomations` (compound), `listBlueprints` (typed), and
 `platformRequest` (authenticated passthrough to any gateway route). Tool count stays
 deliberately small
 ([JPM-0003](decisions/JPM-0003-passthrough-plus-selective-typed-tools.md)).
@@ -172,7 +173,7 @@ against it would be a false promise.
 ## Testing
 
 ```bash
-npm test              # vitest, 72 tests
+npm test              # vitest, 90 tests
 npm run typecheck
 DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix, no credentials needed
 ```

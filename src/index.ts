@@ -5,6 +5,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
+import {
+  classifyPolicyCadence,
+  mapWithConcurrency,
+  scanForExpensiveCommands,
+  type PolicyGeneral,
+} from './automations.js';
 import { loadConfig } from './config.js';
 import {
   enrichGroupMembers,
@@ -436,6 +442,195 @@ server.registerTool(
         unresolvedIds,
         truncated: members.length > cap,
         members: members.slice(0, cap),
+      });
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+/**
+ * Compound tool: find automations that could be burning CPU or battery.
+ *
+ * Motivated by a real report — `du` under `JamfDaemon` with a huge energy impact.
+ * Three things in Jamf can do that, and this checks all of them in one pass:
+ * scripts run by frequently-triggered policies, computer extension attributes
+ * (which run at **every inventory collection**, making them the most-overlooked
+ * cause), and policy cadence itself.
+ *
+ * Auditing everything means one detail request per script, extension attribute and
+ * policy, so requests are bounded by `mapWithConcurrency` and each item's failure is
+ * reported rather than failing the run.
+ */
+server.registerTool(
+  'findExpensiveAutomations',
+  {
+    title: 'Find expensive automations',
+    description:
+      'Audit Jamf scripts, computer extension attributes and policies for commands that ' +
+      'burn CPU or battery when run repeatedly (du, find /, mdfind, system_profiler and ' +
+      'similar), and report which policies run them and how often. Extension attributes ' +
+      'are called out separately because they execute at EVERY inventory collection. ' +
+      'Answers "what is cooking this laptop\'s battery". Read-only.',
+    inputSchema: {
+      includeDisabledPolicies: z
+        .boolean()
+        .optional()
+        .describe('Include policies that are disabled. Defaults to false.'),
+      maxItemsPerKind: z
+        .number()
+        .int()
+        .positive()
+        .max(2000)
+        .optional()
+        .describe('Cap detail fetches per kind (scripts / EAs / policies). Defaults to 500.'),
+      concurrency: z.number().int().positive().max(16).optional().describe('Parallel detail requests. Defaults to 6.'),
+    },
+  },
+  async ({ includeDisabledPolicies, maxItemsPerKind, concurrency }) => {
+    const cap = maxItemsPerKind ?? 500;
+    const parallel = concurrency ?? 6;
+    const errors: Record<string, string> = {};
+
+    /** Classic list endpoints wrap results in a named key and are not paginated. */
+    async function classicList<T>(resource: string, key: string): Promise<T[]> {
+      const body = await client.request<Record<string, unknown>>({
+        service: 'proclassic',
+        rawPath: `/tenant/${config.tenantId}/${resource}`,
+      });
+      const value = body?.[key];
+      return Array.isArray(value) ? (value as T[]) : [];
+    }
+
+    async function classicDetail<T>(resource: string, id: number | string, key: string): Promise<T | undefined> {
+      const body = await client.request<Record<string, unknown>>({
+        service: 'proclassic',
+        rawPath: `/tenant/${config.tenantId}/${resource}/id/${id}`,
+      });
+      return body?.[key] as T | undefined;
+    }
+
+    try {
+      const [scriptStubs, eaStubs, policyStubs] = await Promise.all([
+        classicList<{ id: number; name: string }>('scripts', 'script').catch((e) => {
+          errors.scripts = legError(e);
+          return [];
+        }),
+        classicList<{ id: number; name: string; enabled?: boolean }>(
+          'computerextensionattributes',
+          'computer_extension_attribute',
+        ).catch((e) => {
+          errors.extensionAttributes = legError(e);
+          return [];
+        }),
+        classicList<{ id: number; name: string }>('policies', 'policy').catch((e) => {
+          errors.policies = legError(e);
+          return [];
+        }),
+      ]);
+
+      // ── policies: cadence, and which scripts they run ────────────────────────
+      const policyDetails = await mapWithConcurrency(policyStubs.slice(0, cap), parallel, async (stub) => {
+        try {
+          const policy = await classicDetail<{
+            general?: PolicyGeneral;
+            scripts?: Array<{ id?: number; name?: string }>;
+          }>('policies', stub.id, 'policy');
+          return { stub, general: policy?.general, scripts: policy?.scripts ?? [] };
+        } catch (error) {
+          errors[`policy:${stub.id}`] = legError(error);
+          return null;
+        }
+      });
+
+      const policies = policyDetails
+        .filter((p): p is NonNullable<typeof p> => p !== null)
+        .filter((p) => (includeDisabledPolicies ? true : p.general?.enabled !== false))
+        .map((p) => ({
+          id: p.stub.id,
+          name: p.general?.name ?? p.stub.name,
+          enabled: p.general?.enabled,
+          cadence: classifyPolicyCadence(p.general),
+          scriptIds: p.scripts.map((s) => s.id).filter((id): id is number => typeof id === 'number'),
+          scriptNames: p.scripts.map((s) => s.name).filter((n): n is string => typeof n === 'string'),
+        }));
+
+      // ── scripts: scan contents, then attribute to the policies that run them ──
+      const scriptFindings = await mapWithConcurrency(scriptStubs.slice(0, cap), parallel, async (stub) => {
+        try {
+          const script = await classicDetail<{ name?: string; script_contents?: string }>(
+            'scripts',
+            stub.id,
+            'script',
+          );
+          const matches = scanForExpensiveCommands(script?.script_contents);
+          if (matches.length === 0) return null;
+          const runBy = policies
+            .filter((p) => p.scriptIds.includes(stub.id))
+            .map((p) => ({ id: p.id, name: p.name, cadence: p.cadence }));
+          return {
+            id: stub.id,
+            name: script?.name ?? stub.name,
+            matches,
+            runByPolicies: runBy,
+            // The finding that matters: expensive AND running constantly.
+            runsAtHighFrequency: runBy.some((p) => p.cadence.highFrequency),
+          };
+        } catch (error) {
+          errors[`script:${stub.id}`] = legError(error);
+          return null;
+        }
+      });
+
+      // ── extension attributes: run at EVERY inventory collection ──────────────
+      // The detail path follows the same Classic convention as scripts and policies.
+      // It is not itself documented, so a failure here is reported rather than
+      // assumed impossible.
+      const eaFindings = await mapWithConcurrency(eaStubs.slice(0, cap), parallel, async (stub) => {
+        try {
+          const ea = await classicDetail<{
+            name?: string;
+            enabled?: boolean;
+            input_type?: { type?: string; script?: string };
+          }>('computerextensionattributes', stub.id, 'computer_extension_attribute');
+          const matches = scanForExpensiveCommands(ea?.input_type?.script);
+          if (matches.length === 0) return null;
+          return {
+            id: stub.id,
+            name: ea?.name ?? stub.name,
+            enabled: ea?.enabled ?? stub.enabled,
+            inputType: ea?.input_type?.type,
+            matches,
+          };
+        } catch (error) {
+          errors[`extensionAttribute:${stub.id}`] = legError(error);
+          return null;
+        }
+      });
+
+      const scripts = scriptFindings.filter((s): s is NonNullable<typeof s> => s !== null);
+      const extensionAttributes = eaFindings.filter((e): e is NonNullable<typeof e> => e !== null);
+      const highFrequencyPolicies = policies.filter((p) => p.cadence.highFrequency);
+
+      return asContent({
+        scanned: {
+          scripts: Math.min(scriptStubs.length, cap),
+          extensionAttributes: Math.min(eaStubs.length, cap),
+          policies: Math.min(policyStubs.length, cap),
+          truncated:
+            scriptStubs.length > cap || eaStubs.length > cap || policyStubs.length > cap,
+        },
+        // Ordered most-suspicious first.
+        extensionAttributesWithExpensiveCommands: extensionAttributes,
+        expensiveScriptsRunFrequently: scripts.filter((s) => s.runsAtHighFrequency),
+        expensiveScriptsOther: scripts.filter((s) => !s.runsAtHighFrequency),
+        highFrequencyPolicies,
+        ...(Object.keys(errors).length > 0 ? { partialFailures: errors } : {}),
+        note:
+          'Extension attributes run at every inventory collection, so an expensive one is ' +
+          'the most likely cause of constant background CPU. Jamf inventory collection itself ' +
+          'can also compute disk usage — check the tenant inventory settings if nothing here ' +
+          'explains the load.',
       });
     } catch (error) {
       return asError(error);

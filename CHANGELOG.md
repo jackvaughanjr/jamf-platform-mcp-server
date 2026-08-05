@@ -20,6 +20,13 @@ guarantee.
   answers "how many" but never "which". Member ids with no matching device are
   reported separately rather than dropped. An ambiguous name returns candidates
   instead of guessing.
+- `findExpensiveAutomations` — audits scripts, computer extension attributes and
+  policies for commands that burn CPU when run repeatedly (`du`, `find /`,
+  `mdfind`, `system_profiler` and similar), and reports which policies run them
+  and how often. Extension attributes are reported separately because they execute
+  at every inventory collection. Detail requests are bounded by a concurrency limit
+  and per-item failures are reported rather than failing the run.
+- `src/automations.ts` — pure scanning and policy-cadence helpers, mutation-checked.
 
 ## [0.1.0] — 2026-08-05
 
