@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-31%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-50%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -53,6 +53,7 @@ src/
   index.ts              MCP server: tool registration, stdio transport
   platform-client.ts    every gateway concern — auth, token cache, URL shapes, paging
   config.ts             environment validation (zod)
+  fleet.ts              pure fleet aggregation — no client, no clock, no I/O
   *.test.ts             unit tests (vitest)
 decisions/              architectural decision records, JPM- prefix, immutable
 docs/
@@ -86,12 +87,15 @@ Declaration Reporting, Compliance Benchmarks. This is an evidenced conclusion, n
 an omission — see [JPM-0005](decisions/JPM-0005-unsupported-api-groups.md) and
 [`docs/gateway-reference.md`](docs/gateway-reference.md).
 
-Tools: `platformRequest` (authenticated passthrough to any gateway route) and
-`listBlueprints` (typed example). Tool count stays deliberately small
+Tools: `getFleetOverview` and `findDevices` (compound), `listBlueprints` (typed),
+and `platformRequest` (authenticated passthrough to any gateway route). Tool count
+stays deliberately small
 ([JPM-0003](decisions/JPM-0003-passthrough-plus-selective-typed-tools.md)).
 
-Not done yet: no typed compound tools, and `device-actions` is hosted but
-unverified because every route in it is a write.
+Not yet run against a live tenant: the compound tools and `requestAll` are
+unit-tested and mutation-checked, but no real multi-page fetch has executed, so
+the gateway's actual paging behaviour is still unconfirmed. `device-actions` is
+hosted but unverified, because every route in it is a write.
 
 ## Setup
 
@@ -158,16 +162,19 @@ against it would be a false promise.
 ## Testing
 
 ```bash
-npm test              # vitest, 31 tests
+npm test              # vitest, 50 tests
 npm run typecheck
 DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix, no credentials needed
 npm run inspector                          # MCP handshake against the built server
 ```
 
 Tests never reach the gateway: `fetch` is stubbed per test and credentials are
-fixtures. The suite is mutation-checked — removing the `totalCount` pagination
-fallback, making paging 1-based, or disabling the read-only guard each cause
-failures.
+fixtures. The suite is mutation-checked rather than assumed useful — each of these
+deliberate breakages causes failures: removing the `totalCount` pagination
+fallback, making paging 1-based, disabling the read-only guard, misclassifying
+iPads as Macs, treating an unparseable timestamp as a recent check-in, letting an
+empty search query match every device, and counting an absent `managed` flag as
+unmanaged.
 
 ## Pull request and review policy
 

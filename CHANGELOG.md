@@ -18,6 +18,12 @@ guarantee.
 - `platformRequest` — authenticated passthrough reaching any gateway route, in all
   three path layouts.
 - `listBlueprints` — typed tool, and the pattern to copy.
+- `getFleetOverview` — compound tool fetching devices, device groups and blueprints
+  concurrently and summarising them. A failing section degrades that section only,
+  rather than losing the whole answer.
+- `findDevices` — search by serial, name, model, id or user across the paginated
+  device list.
+- `src/fleet.ts` — pure aggregation helpers, no client or clock, mutation-checked.
 - `scripts/discover-gateway.sh` — resolves service segments empirically, enumerates
   hosted segments, and captures type-only response schemas.
 - `scripts/fetch-blueprints.sh` — standalone Blueprints smoke test.
@@ -34,5 +40,6 @@ guarantee.
 - Jamf Pro Classic, Declaration Reporting, and Compliance Benchmarks are not
   supported: the gateway does not expose them
   ([JPM-0005](decisions/JPM-0005-unsupported-api-groups.md)).
-- No typed compound tools yet; `platformRequest` covers the surface meanwhile.
+- Compound tools and `requestAll` are unit-tested but have not yet run against a
+  live tenant, so the gateway's real paging behaviour remains unconfirmed.
 - `device-actions` is hosted but unverified — every route in it is a write.

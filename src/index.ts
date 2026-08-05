@@ -4,6 +4,15 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 import { loadConfig } from './config.js';
+import {
+  matchesDeviceQuery,
+  summarizeBlueprints,
+  summarizeDevices,
+  summarizeGroups,
+  type BlueprintRecord,
+  type DeviceGroupRecord,
+  type DeviceRecord,
+} from './fleet.js';
 import { JamfPlatformApiError, JamfPlatformClient } from './platform-client.js';
 
 function requireConfig() {
@@ -109,6 +118,119 @@ server.registerTool(
   async () => {
     try {
       return asContent(await client.request({ service: 'blueprints', resource: 'blueprints' }));
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+/** Describes a rejected fan-out leg without pretending it succeeded. */
+function legError(error: unknown): string {
+  if (error instanceof JamfPlatformApiError) return `${error.message} — ${error.responseBody.slice(0, 300)}`;
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Compound tool: answers "how is the fleet doing" in one call.
+ *
+ * The point of a compound tool is that the model asks once instead of looping —
+ * the three collections are fetched concurrently here rather than in the model's
+ * turn loop.
+ *
+ * Uses allSettled, not all: a single failing segment must degrade that one
+ * section rather than lose the whole answer. Only the four confirmed-working
+ * routes are touched.
+ */
+server.registerTool(
+  'getFleetOverview',
+  {
+    title: 'Fleet overview',
+    description:
+      'One-call fleet summary: device counts by platform and OS major, managed vs unmanaged, ' +
+      'stale check-ins, device-group breakdown, and blueprint deployment states. ' +
+      'Fetches devices, device groups and blueprints concurrently. NOTE the device total spans ' +
+      'macOS AND iOS/iPadOS — it is not a Mac count. Sections that fail are reported ' +
+      'individually rather than failing the whole call.',
+    inputSchema: {
+      staleThresholdDays: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe('Days without a check-in before a device counts as stale. Defaults to 30.'),
+    },
+  },
+  async ({ staleThresholdDays }) => {
+    const [devices, groups, blueprints] = await Promise.allSettled([
+      client.requestAll<DeviceRecord>({ service: 'devices', resource: 'devices' }),
+      client.requestAll<DeviceGroupRecord>({ service: 'device-groups', resource: 'device-groups' }),
+      client.requestAll<BlueprintRecord>({ service: 'blueprints', resource: 'blueprints' }),
+    ]);
+
+    const errors: Record<string, string> = {};
+    const overview: Record<string, unknown> = {};
+
+    if (devices.status === 'fulfilled') {
+      overview.devices = summarizeDevices(devices.value, new Date(), staleThresholdDays ?? 30);
+    } else {
+      errors.devices = legError(devices.reason);
+    }
+
+    if (groups.status === 'fulfilled') {
+      overview.deviceGroups = summarizeGroups(groups.value);
+    } else {
+      errors.deviceGroups = legError(groups.reason);
+    }
+
+    if (blueprints.status === 'fulfilled') {
+      overview.blueprints = summarizeBlueprints(blueprints.value);
+    } else {
+      errors.blueprints = legError(blueprints.reason);
+    }
+
+    if (Object.keys(overview).length === 0) {
+      return asError(new Error(`every section failed: ${JSON.stringify(errors)}`));
+    }
+    if (Object.keys(errors).length > 0) overview.partialFailures = errors;
+    return asContent(overview);
+  },
+);
+
+/**
+ * Compound tool: find devices by serial, name, model, id or user.
+ *
+ * Filtering is client-side over the confirmed list route. The gateway's
+ * server-side filter parameters are undocumented, and the documented per-device
+ * detail route (`/devices/{id}`) has never returned 200 in testing — so a
+ * lookup built on it would be resting on an unverified route.
+ */
+server.registerTool(
+  'findDevices',
+  {
+    title: 'Find devices',
+    description:
+      'Search the fleet by serial number, device name, model, device id, or user id ' +
+      '(case-insensitive substring). Spans macOS and iOS/iPadOS. Paginates the full ' +
+      'device list and filters client-side, because the gateway has no confirmed ' +
+      'server-side filter.',
+    inputSchema: {
+      query: z.string().min(1).describe('Substring to match against serial, name, model, id or user'),
+      limit: z.number().int().positive().max(200).optional().describe('Max matches to return. Defaults to 25.'),
+    },
+  },
+  async ({ query, limit }) => {
+    try {
+      const all = await client.requestAll<DeviceRecord>({ service: 'devices', resource: 'devices' });
+      const matches = all.filter((d) => matchesDeviceQuery(d, query));
+      const cap = limit ?? 25;
+      return asContent({
+        query,
+        scanned: all.length,
+        matched: matches.length,
+        // Say so when results are cut, rather than implying this is everything.
+        truncated: matches.length > cap,
+        devices: matches.slice(0, cap),
+      });
     } catch (error) {
       return asError(error);
     }
