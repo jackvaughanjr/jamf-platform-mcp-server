@@ -101,6 +101,21 @@ mkdir -p "$RAW_DIR" "$SHAPE_DIR"
 # Blueprints is the control: known-good from scripts/fetch-blueprints.sh, so if
 # it fails the credentials or gateway are wrong, not the table.
 PROBES=(
+  # ── NEGATIVE CONTROLS ──────────────────────────────────────────────────────
+  # These decide what 403/BAD_PERMISSIONS actually means, which three groups'
+  # results currently hinge on.
+  #
+  # A route that certainly does not exist, under a service confirmed to work.
+  # If this returns 403 BAD_PERMISSIONS, then BAD_PERMISSIONS means "no such
+  # route in a service you can reach" — and blueprint-components,
+  # declaration-reporting and jamf-pro-classic are UNRESOLVED PATHS, not
+  # permission problems. If it returns 404, BAD_PERMISSIONS really is about
+  # authorisation and those three paths are correct.
+  "_control-bogus-route|devices|zz-no-such-route-control|tenant"
+  # A service that certainly does not exist. Expected 404; establishes the
+  # contrast case.
+  "_control-bogus-service|zz-no-such-service-control|things|tenant"
+
   "blueprints|blueprints|blueprints|tenant"
   "blueprint-components|blueprints|components|tenant"
   "devices|devices|devices|tenant"
@@ -194,8 +209,19 @@ fi
 {
   printf '# Gateway discovery report\n\n'
   printf 'Gateway: `%s`\n\n' "$BASE"
-  printf 'Read-only integration. `403` means the path is correct and the scope is absent —\n'
-  printf 'that is a successful path resolution, not a failure.\n\n'
+  printf 'Read-only integration.\n\n'
+  printf '`403` does NOT mean "path correct, scope missing". An integration granted every\n'
+  printf 'available `read:pro:*` scope still receives 403 on several routes, and\n'
+  printf '`blueprints` list returns 200 under the same scope that 403s on\n'
+  printf '`blueprints/components`. Treat a 403 row as UNCONFIRMED until the negative\n'
+  printf 'controls below say otherwise:\n\n'
+  # printf must not receive a leading "-" as its format string; it is parsed as
+  # an option flag and the whole header generation dies.
+  printf '%s\n' '- `_control-bogus-route` — a route that cannot exist, under a working service.'
+  printf '%s\n' '  403 here means BAD_PERMISSIONS marks an unknown route, so every other 403 row'
+  printf '%s\n' '  is a wrong path rather than a permission gap.'
+  printf '%s\n' '- `_control-bogus-service` — a service that cannot exist. Expect 404.'
+  printf '\n'
   printf 'Tenant identifiers and result counts are deliberately absent: this file is\n'
   printf 'committed and shared externally. The envelope column lists response *key names*,\n'
   printf 'which is the part that matters for writing a pagination helper.\n\n'
