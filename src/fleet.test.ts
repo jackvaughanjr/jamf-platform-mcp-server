@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  enrichGroupMembers,
   lastSeen,
+  looksLikeUuid,
   majorVersion,
   matchesDeviceQuery,
+  matchesGroupQuery,
   platformOf,
   selectOutdatedDevices,
   summarizeBlueprints,
@@ -303,6 +306,69 @@ describe('selectOutdatedDevices', () => {
 
   it('handles an empty fleet', () => {
     expect(selectOutdatedDevices([], 26)).toEqual({ outdated: [], unknownVersion: [] });
+  });
+});
+
+describe('looksLikeUuid', () => {
+  it('accepts a real UUID and rejects a name', () => {
+    expect(looksLikeUuid('8dce9404-4779-49cc-825b-428ac74eddc9')).toBe(true);
+    expect(looksLikeUuid('  8DCE9404-4779-49CC-825B-428AC74EDDC9  ')).toBe(true);
+    expect(looksLikeUuid('All Managed')).toBe(false);
+    expect(looksLikeUuid('8dce9404')).toBe(false);
+    // A trailing segment makes it not a bare id — must not be treated as one.
+    expect(looksLikeUuid('8dce9404-4779-49cc-825b-428ac74eddc9/members')).toBe(false);
+  });
+});
+
+describe('matchesGroupQuery', () => {
+  const group = { name: 'Compliance Level 2', description: 'baseline scope' };
+
+  it('matches name or description, case-insensitively', () => {
+    expect(matchesGroupQuery(group, 'level 2')).toBe(true);
+    expect(matchesGroupQuery(group, 'BASELINE')).toBe(true);
+  });
+
+  it('does not match on an empty query or unrelated text', () => {
+    expect(matchesGroupQuery(group, '')).toBe(false);
+    expect(matchesGroupQuery(group, '   ')).toBe(false);
+    expect(matchesGroupQuery(group, 'level 3')).toBe(false);
+  });
+
+  it('tolerates a null description', () => {
+    expect(matchesGroupQuery({ name: 'x', description: null }, 'x')).toBe(true);
+  });
+});
+
+describe('enrichGroupMembers', () => {
+  const devices: DeviceRecord[] = [
+    { id: 'id-b', name: 'beta', serialNumber: 'SB', modelIdentifier: 'iPad13,4', operatingSystemVersion: '26.1', lastInventoryUpdateTime: daysAgo(1) },
+    { id: 'id-a', name: 'alpha', serialNumber: 'SA', modelIdentifier: 'MacBookPro18,3', operatingSystemVersion: '26.0', lastCheckInTime: daysAgo(2) },
+  ];
+
+  it('resolves bare member ids to device detail, sorted by name', () => {
+    const { members, unresolvedIds } = enrichGroupMembers(['id-b', 'id-a'], devices);
+    expect(members.map((m) => m.name)).toEqual(['alpha', 'beta']);
+    expect(members[0]?.platform).toBe('macOS');
+    expect(members[0]?.serialNumber).toBe('SA');
+    expect(members[1]?.lastSeenIso).not.toBeNull();
+    expect(unresolvedIds).toEqual([]);
+  });
+
+  // A membership pointing at a device absent from the device list is a finding.
+  it('reports member ids with no matching device instead of dropping them', () => {
+    const { members, unresolvedIds } = enrichGroupMembers(['id-a', 'ghost-id'], devices);
+    expect(members).toHaveLength(1);
+    expect(unresolvedIds).toEqual(['ghost-id']);
+  });
+
+  it('handles an empty group and an empty device list', () => {
+    expect(enrichGroupMembers([], devices)).toEqual({ members: [], unresolvedIds: [] });
+    expect(enrichGroupMembers(['id-a'], []).unresolvedIds).toEqual(['id-a']);
+  });
+
+  it('normalises an empty-string OS version to null', () => {
+    const { members } = enrichGroupMembers(['x'], [{ id: 'x', operatingSystemVersion: '' }]);
+    expect(members[0]?.operatingSystemVersion).toBeNull();
   });
 });
 

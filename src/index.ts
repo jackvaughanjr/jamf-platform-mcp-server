@@ -7,7 +7,10 @@ import { z } from 'zod';
 
 import { loadConfig } from './config.js';
 import {
+  enrichGroupMembers,
+  looksLikeUuid,
   matchesDeviceQuery,
+  matchesGroupQuery,
   selectOutdatedDevices,
   summarizeBlueprints,
   summarizeDevices,
@@ -307,6 +310,132 @@ server.registerTool(
         truncated: outdated.length > cap || unknownVersion.length > cap,
         outdated: outdated.slice(0, cap),
         unknownVersion: unknownVersion.slice(0, cap),
+      });
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+/** Compound tool: search device groups by name or description. */
+server.registerTool(
+  'findDeviceGroups',
+  {
+    title: 'Find device groups',
+    description:
+      'Search device groups by name or description (case-insensitive substring), ' +
+      'returning id, member count, deviceType and groupType. Covers both computer ' +
+      'and mobile groups, smart and static, since the gateway returns them in one list.',
+    inputSchema: {
+      query: z.string().min(1).describe('Substring to match against group name or description'),
+      limit: z.number().int().positive().max(200).optional().describe('Max matches. Defaults to 50.'),
+    },
+  },
+  async ({ query, limit }) => {
+    try {
+      const all = await client.requestAll<DeviceGroupRecord>({
+        service: 'device-groups',
+        resource: 'device-groups',
+      });
+      const matches = all.filter((g) => matchesGroupQuery(g, query));
+      const cap = limit ?? 50;
+      return asContent({
+        query,
+        scanned: all.length,
+        matched: matches.length,
+        truncated: matches.length > cap,
+        groups: matches
+          .slice(0, cap)
+          .map((g) => ({
+            id: g.id,
+            name: g.name,
+            memberCount: g.memberCount,
+            deviceType: g.deviceType,
+            groupType: g.groupType,
+          })),
+      });
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+/**
+ * Compound tool: which devices are actually in a group.
+ *
+ * The members endpoint returns bare device UUIDs, so it answers "how many" but not
+ * "which". This resolves the group by name or id, fetches its members, and joins
+ * them against the device list to give names, serials, platform and last-seen.
+ *
+ * No paging parameters are documented for the members route, so it is a single
+ * request rather than a `requestAll` — sending ignored parameters would only invite
+ * a wrong assumption about completeness.
+ */
+server.registerTool(
+  'getDeviceGroupMembers',
+  {
+    title: 'Get device group members',
+    description:
+      'List the devices in a device group, resolved to names, serials, platform and ' +
+      'last-seen time. Accepts a group UUID or a name substring; an ambiguous name ' +
+      'returns the candidate groups rather than guessing. Member ids with no matching ' +
+      'device are reported separately, since a membership pointing at an absent device ' +
+      'is itself worth knowing.',
+    inputSchema: {
+      group: z.string().min(1).describe('Group UUID, or a substring of the group name'),
+      limit: z.number().int().positive().max(1000).optional().describe('Max members to return. Defaults to 200.'),
+    },
+  },
+  async ({ group, limit }) => {
+    try {
+      let groupId = looksLikeUuid(group) ? group.trim() : undefined;
+      let groupName: string | undefined;
+
+      if (!groupId) {
+        const all = await client.requestAll<DeviceGroupRecord>({
+          service: 'device-groups',
+          resource: 'device-groups',
+        });
+        const matches = all.filter((g) => matchesGroupQuery(g, group));
+        if (matches.length === 0) {
+          return asContent({ query: group, matched: 0, hint: 'No group matched. Try findDeviceGroups.' });
+        }
+        if (matches.length > 1) {
+          // Guessing between similarly-named compliance groups would be worse than
+          // asking — the wrong one silently answers a different question.
+          return asContent({
+            query: group,
+            matched: matches.length,
+            hint: 'Ambiguous — re-run with one of these ids or a more specific substring.',
+            candidates: matches.map((g) => ({ id: g.id, name: g.name, memberCount: g.memberCount })),
+          });
+        }
+        groupId = matches[0]?.id;
+        groupName = matches[0]?.name;
+        if (!groupId) return asError(new Error('matched group has no id'));
+      }
+
+      const [memberBody, devices] = await Promise.all([
+        client.request<{ totalCount?: number; results?: string[] }>({
+          service: 'device-groups',
+          resource: `device-groups/${groupId}/members`,
+        }),
+        client.requestAll<DeviceRecord>({ service: 'devices', resource: 'devices' }),
+      ]);
+
+      const memberIds = memberBody?.results ?? [];
+      const { members, unresolvedIds } = enrichGroupMembers(memberIds, devices);
+      const cap = limit ?? 200;
+
+      return asContent({
+        groupId,
+        groupName,
+        reportedTotalCount: memberBody?.totalCount,
+        memberIdsReturned: memberIds.length,
+        resolved: members.length,
+        unresolvedIds,
+        truncated: members.length > cap,
+        members: members.slice(0, cap),
       });
     } catch (error) {
       return asError(error);

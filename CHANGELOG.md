@@ -10,7 +10,16 @@ guarantee.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `findDeviceGroups` — search device groups by name or description across computer
+  and mobile, smart and static groups.
+- `getDeviceGroupMembers` — resolves a group by UUID or name substring, then joins
+  its members against the device list to give names, serials, platform and
+  last-seen. The members endpoint returns bare device UUIDs, so on its own it
+  answers "how many" but never "which". Member ids with no matching device are
+  reported separately rather than dropped. An ambiguous name returns candidates
+  instead of guessing.
 
 ## [0.1.0] — 2026-08-05
 

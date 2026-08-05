@@ -319,6 +319,70 @@ export function summarizeBlueprints(blueprints: BlueprintRecord[]): BlueprintSum
   };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True when a string is a bare UUID, so it can be used as an id without a lookup. */
+export function looksLikeUuid(value: string): boolean {
+  return UUID_RE.test(value.trim());
+}
+
+/** Case-insensitive substring match on a group's name or description. */
+export function matchesGroupQuery(group: DeviceGroupRecord, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return false;
+  return [group.name, group.description].some(
+    (field) => typeof field === 'string' && field.toLowerCase().includes(q),
+  );
+}
+
+export interface EnrichedMember {
+  id: string;
+  name?: string;
+  serialNumber?: string | null;
+  platform: Platform;
+  operatingSystemVersion: string | null;
+  lastSeenIso: string | null;
+}
+
+/**
+ * Joins a group's member ids against the device list.
+ *
+ * The members endpoint returns **bare device UUIDs**, not records, so on its own it
+ * answers "how many" but never "which". Ids with no matching device are returned
+ * separately rather than dropped: a membership pointing at a device absent from the
+ * device list is itself a finding, not noise to hide.
+ */
+export function enrichGroupMembers(
+  memberIds: string[],
+  devices: DeviceRecord[],
+): { members: EnrichedMember[]; unresolvedIds: string[] } {
+  const byId = new Map<string, DeviceRecord>();
+  for (const d of devices) if (d.id) byId.set(d.id, d);
+
+  const members: EnrichedMember[] = [];
+  const unresolvedIds: string[] = [];
+
+  for (const id of memberIds) {
+    const device = byId.get(id);
+    if (!device) {
+      unresolvedIds.push(id);
+      continue;
+    }
+    const { at } = lastSeen(device);
+    members.push({
+      id,
+      name: device.name,
+      serialNumber: device.serialNumber,
+      platform: platformOf(device.modelIdentifier),
+      operatingSystemVersion: device.operatingSystemVersion ? device.operatingSystemVersion : null,
+      lastSeenIso: at === null ? null : new Date(at).toISOString(),
+    });
+  }
+
+  members.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+  return { members, unresolvedIds };
+}
+
 /**
  * Case-insensitive substring match across the fields someone would actually
  * search a device by.

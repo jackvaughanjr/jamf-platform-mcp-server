@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-64%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-72%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -94,9 +94,10 @@ Compliance Benchmarks were simply not exposed. That was wrong; see
 [JPM-0006](decisions/JPM-0006-classic-and-declaration-reporting-are-supported.md),
 which supersedes JPM-0005 and explains how the error happened.
 
-Tools: `getFleetOverview`, `findDevices` and `findOutdatedDevices` (compound),
-`listBlueprints` (typed), and `platformRequest` (authenticated passthrough to any
-gateway route). Tool count stays deliberately small
+Tools: `getFleetOverview`, `findDevices`, `findOutdatedDevices`, `findDeviceGroups`
+and `getDeviceGroupMembers` (compound), `listBlueprints` (typed), and
+`platformRequest` (authenticated passthrough to any gateway route). Tool count stays
+deliberately small
 ([JPM-0003](decisions/JPM-0003-passthrough-plus-selective-typed-tools.md)).
 
 Pagination is confirmed live: a real page-1 request returned different records with
@@ -171,7 +172,7 @@ against it would be a false promise.
 ## Testing
 
 ```bash
-npm test              # vitest, 64 tests
+npm test              # vitest, 72 tests
 npm run typecheck
 DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix, no credentials needed
 ```
