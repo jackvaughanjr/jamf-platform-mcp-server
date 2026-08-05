@@ -15,6 +15,14 @@
 #
 set -euo pipefail
 
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$HOOK_DIR/.." && pwd)"
+
+# Committed ADRs are immutable; see the script for the sanctioned overrides.
+if [ -x "$REPO_ROOT/scripts/check-adr-immutability.sh" ]; then
+  "$REPO_ROOT/scripts/check-adr-immutability.sh" || exit 1
+fi
+
 staged="$(git diff --cached --name-only --diff-filter=ACM)"
 [ -n "$staged" ] || exit 0
 
