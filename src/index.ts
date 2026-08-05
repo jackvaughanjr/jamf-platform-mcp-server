@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -30,9 +32,27 @@ function requireConfig() {
 const config = requireConfig();
 const client = new JamfPlatformClient(config);
 
+/**
+ * Read the version from package.json rather than duplicating it here.
+ *
+ * README states package.json is the single source of the version, and a hardcoded
+ * literal made that false — the two would drift at the first release, and the
+ * version an MCP client sees is the one that matters. Resolved relative to this
+ * module, so it works from dist/ regardless of the caller's cwd.
+ */
+function packageVersion(): string {
+  try {
+    const raw = readFileSync(new URL('../package.json', import.meta.url), 'utf8');
+    return (JSON.parse(raw) as { version?: string }).version ?? '0.0.0';
+  } catch {
+    // Never fail startup over version metadata.
+    return '0.0.0';
+  }
+}
+
 const server = new McpServer({
   name: 'jamf-platform-mcp-server',
-  version: '0.1.0',
+  version: packageVersion(),
 });
 
 /** Renders a result or an error as MCP tool content. */
