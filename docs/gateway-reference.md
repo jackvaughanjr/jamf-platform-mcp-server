@@ -136,6 +136,11 @@ being averaged away.
 `lastContactTime` was null on every record sampled, so its semantics are unknown;
 do not assume it is a usable signal.
 
+**`operatingSystemVersion` can be an empty string, not null.** Observed on a device
+that enrolled but never completed setup. `?? null` does not catch `""`, so a naive
+projection reports `operatingSystemVersion: ""` next to a major version of
+`unknown`. Treat empty as absent.
+
 Confirmed over a full fleet fetch: `lastCheckInTime` is populated on exactly the
 macOS devices and no others, and `lastInventoryUpdateTime` is populated on every
 record. More useful still, inventory-update supplied the freshest value for the

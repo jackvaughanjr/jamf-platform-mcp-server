@@ -277,7 +277,11 @@ export function selectOutdatedDevices(
       name: d.name,
       serialNumber: d.serialNumber,
       platform: platformOf(d.modelIdentifier),
-      operatingSystemVersion: d.operatingSystemVersion ?? null,
+      // Normalise "" to null. The gateway returns an empty string (not null) for
+      // devices that never completed setup, and `??` passes "" through — which
+      // would report operatingSystemVersion: "" beside majorVersion: "unknown"
+      // and invite a consumer to treat "" as a version.
+      operatingSystemVersion: d.operatingSystemVersion ? d.operatingSystemVersion : null,
       majorVersion: majorVersion(d.operatingSystemVersion),
       lastSeenIso: at === null ? null : new Date(at).toISOString(),
       lastSeenSource: source,

@@ -290,6 +290,17 @@ describe('selectOutdatedDevices', () => {
     expect(tv?.lastSeenSource).toBe('lastInventoryUpdateTime');
   });
 
+  // Observed live: a device that never completed setup reports "" here, not null.
+  it('normalises an empty-string version to null, not ""', () => {
+    const { unknownVersion } = selectOutdatedDevices(
+      [{ name: 'never-setup', modelIdentifier: 'MacBookPro18,3', operatingSystemVersion: '' }],
+      26,
+    );
+    expect(unknownVersion).toHaveLength(1);
+    expect(unknownVersion[0]?.operatingSystemVersion).toBeNull();
+    expect(unknownVersion[0]?.majorVersion).toBe('unknown');
+  });
+
   it('handles an empty fleet', () => {
     expect(selectOutdatedDevices([], 26)).toEqual({ outdated: [], unknownVersion: [] });
   });
