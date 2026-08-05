@@ -52,8 +52,32 @@ came back.
 
 Diagnostic shorthand when a call fails:
 
-- **404** — wrong service segment or resource
-- **403** — right path, missing scope
+- **404** — the gateway has no such route: wrong segment, resource, or style
+- **403** — the route exists but refuses this caller. **Cause unknown — do not
+  read this as "missing scope."**
+
+That second point is a correction, not a caveat. An integration granted *every*
+available `read:pro:*` scope still receives 403 on blueprint components,
+Compliance Benchmarks, Declaration Reporting, and Classic buildings, while
+holding `read:pro:blueprints`, `read:pro:compliance-benchmarks`,
+`read:pro:declaration-reporting`, and `read:pro:buildings` respectively — and
+`blueprints` list returns **200** under that same `read:pro:blueprints`. Same
+scope, same service, one route works and one does not. So 403 encodes something
+other than permission.
+
+Leading hypotheses, untested:
+
+1. The route is registered in the gateway but not enabled for this tenant or
+   this stage of the beta.
+2. The path is subtly wrong and the gateway answers unmatched-but-plausible
+   routes with 403 rather than 404.
+3. Classic and the newer groups need an authorisation grant beyond gateway
+   scopes — a Jamf Pro API role, or per-tenant enablement.
+
+`scripts/discover-gateway.sh` now saves every 4xx body to
+`fixtures/raw/errors/` (gitignored) and puts a scrubbed one-line message in the
+report. **Read those bodies before theorising** — three passes were spent
+inferring from bare status codes.
 
 ### Confirmed service segments
 

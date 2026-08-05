@@ -11,12 +11,23 @@
 # that reads like a permissions failure. Rather than guess per API group, this
 # probes candidate segments and reports which one answers.
 #
-# DIAGNOSTIC KEY — the whole point of the run:
-#   200  correct segment, scope present
-#   403  correct segment, scope MISSING       <- path is right, permissions aren't
-#   404  wrong segment or wrong resource      <- path is wrong
+# DIAGNOSTIC KEY
+#   200  route works
+#   403  route is known to the gateway but refuses this caller — CAUSE UNKNOWN
+#   404  gateway has no such route
 #   401  token rejected (credential problem, not a path problem)
-# A 403 is therefore a *success* for path discovery.
+#
+# 403 does NOT mean "missing scope". Verified 2026-08-04 against an integration
+# granted every available read:pro:* scope: blueprint components,
+# compliance-benchmarks, declaration-reporting and Classic buildings all still
+# returned 403 while holding read:pro:blueprints,
+# read:pro:compliance-benchmarks, read:pro:declaration-reporting and
+# read:pro:buildings respectively — and blueprints/list returns 200 under the
+# very same read:pro:blueprints. Whatever 403 encodes, permission is not it.
+#
+# Because of that, 4xx bodies are now saved to fixtures/raw/errors/ (gitignored)
+# and a scrubbed one-line message goes into the report. Read those before
+# theorising.
 #
 # OUTPUT
 #   fixtures/raw/<group>.json      full response — GITIGNORED, never commit
@@ -64,6 +75,7 @@ esac
 BASE="${JAMF_GATEWAY_BASE_URL:-https://us.apigw.jamf.com}"
 TOKEN_URL="${JAMF_TOKEN_URL:-${BASE}/auth/token}"
 RAW_DIR="$REPO_ROOT/fixtures/raw"
+ERR_DIR="$REPO_ROOT/fixtures/raw/errors"
 SHAPE_DIR="$REPO_ROOT/fixtures/shapes"
 REPORT="$REPO_ROOT/fixtures/discovery-report.md"
 mkdir -p "$RAW_DIR" "$SHAPE_DIR"
@@ -254,16 +266,37 @@ for probe in "${PROBES[@]}"; do
         note_text="style \`${style}\`, envelope: \`${envelope}\`"
         rm -f "$body_file"; break 3 ;;
       403)
-        # Path is right; scope is missing. Stop — no better answer exists.
+        # Do NOT assume this means "missing scope". Verified 2026-08-04: an
+        # integration holding read:pro:blueprints, read:pro:compliance-benchmarks,
+        # read:pro:declaration-reporting and read:pro:buildings still gets 403 on
+        # all four of those routes, while blueprints/list returns 200 under the
+        # same scope. So 403 distinguishes something other than permission, and
+        # the response body is the only evidence — keep it.
         resolved="$service"; resolved_style="$style"; final_status="$status"; final_url="$url"
-        note_text="style \`${style}\`; path resolves, integration lacks the read scope"
-        warn "${group}: 403 via service='${service}' style='${style}' (path OK, scope missing)"
+        mkdir -p "$ERR_DIR"
+        cp "$body_file" "$ERR_DIR/${group}.json"
+        err_msg="$(jq -r '[.errors[]?.description, .errors[]?.code, .message, .error, .error_description, .detail, .title]
+                          | map(select(. != null)) | unique | join(" | ")' \
+                    < "$body_file" 2>/dev/null || true)"
+        [ -n "$err_msg" ] || err_msg="$(tr -d '\n' < "$body_file" | cut -c1-160)"
+        [ -n "$err_msg" ] || err_msg="(empty body)"
+        # Scrub identifiers before this reaches the committed report.
+        err_msg="$(printf '%s' "$err_msg" \
+          | sed -E 's/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/{ID}/g' \
+          | sed 's/|/\\|/g')"
+        note_text="style \`${style}\`, 403 body: ${err_msg}"
+        warn "${group}: 403 via service='${service}' style='${style}' — ${err_msg}"
         rm -f "$body_file"; break 3 ;;
       401)
         rm -f "$body_file"
         die "401 from gateway — token rejected. Credential problem, not a path problem." ;;
       *)
+        # Keep the last failing body per group — a 404 body often names the
+        # reason, and guessing from a bare status code is what stalled the first
+        # two passes.
         final_status="$status"; final_url="$url"
+        mkdir -p "$ERR_DIR"
+        cp "$body_file" "$ERR_DIR/${group}.last-${status}.json" 2>/dev/null || true
         rm -f "$body_file" ;;
     esac
     done
