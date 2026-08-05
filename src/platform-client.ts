@@ -76,6 +76,30 @@ export interface RequestOptions {
   body?: unknown;
 }
 
+/**
+ * A gateway list response. Both known envelope variants are optional because the
+ * gateway is not consistent between segments: `devices` and `device-groups`
+ * return the full set, while `blueprints`, `blueprint-components` and `pro`
+ * return only `results` + `totalCount`.
+ */
+export interface PagedResponse<T> {
+  results?: T[];
+  items?: T[];
+  totalCount?: number;
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
+  hasNext?: boolean;
+  hasPrevious?: boolean;
+}
+
+export interface RequestAllOptions extends RequestOptions {
+  /** Items per request. Defaults to 100. */
+  pageSize?: number;
+  /** Hard stop, so a contract change cannot become an infinite loop. Defaults to 100. */
+  maxPages?: number;
+}
+
 export class JamfPlatformApiError extends Error {
   constructor(
     message: string,
@@ -222,5 +246,49 @@ export class JamfPlatformClient {
     } catch {
       return text as unknown as T;
     }
+  }
+
+  /**
+   * Follows pagination and returns every item.
+   *
+   * Termination cannot rely on `hasNext`: only `devices` and `device-groups`
+   * return it, while `blueprints`, `blueprint-components` and `pro` return just
+   * `totalCount`. A helper keyed on `hasNext` would silently return one page
+   * forever for the latter — so `hasNext` is used when present, `totalCount`
+   * otherwise, and an empty page is the backstop for a response carrying
+   * neither.
+   *
+   * `page` is 0-based; the gateway's parameters are `page` and `page-size`.
+   */
+  async requestAll<T = unknown>(options: RequestAllOptions): Promise<T[]> {
+    const pageSize = options.pageSize ?? 100;
+    const maxPages = options.maxPages ?? 100;
+    const collected: T[] = [];
+
+    for (let page = 0; page < maxPages; page += 1) {
+      const body = await this.request<PagedResponse<T>>({
+        ...options,
+        method: options.method ?? 'GET',
+        query: { ...options.query, page, 'page-size': pageSize },
+      });
+
+      const batch = body?.results ?? body?.items ?? [];
+      collected.push(...batch);
+
+      // Explicit signal wins when the segment provides it.
+      if (typeof body?.hasNext === 'boolean') {
+        if (!body.hasNext) return collected;
+      } else if (typeof body?.totalCount === 'number') {
+        if (collected.length >= body.totalCount) return collected;
+      }
+
+      // No progress and no usable signal — stop rather than loop forever.
+      if (batch.length === 0) return collected;
+    }
+
+    throw new Error(
+      `requestAll exceeded maxPages (${maxPages}) for ${options.service}/${options.rawPath ?? options.resource}. ` +
+        'Raise maxPages deliberately, or check whether the pagination contract changed.',
+    );
   }
 }

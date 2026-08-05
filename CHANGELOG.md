@@ -21,6 +21,10 @@ guarantee.
 - `scripts/discover-gateway.sh` — resolves service segments empirically, enumerates
   hosted segments, and captures type-only response schemas.
 - `scripts/fetch-blueprints.sh` — standalone Blueprints smoke test.
+- `requestAll()` — follows pagination across both envelope variants, using `hasNext`
+  when the segment provides it and `totalCount` when it does not.
+- Test suite (vitest, 31 tests) covering URL shapes, token caching and refresh
+  de-duplication, read-only enforcement, error surfacing, and pagination.
 - Architectural decision records under `decisions/`, with an immutability guard.
 - `.githooks/pre-commit` — rejects force-added gitignored files, guarding the
   client secret and captured fleet data.
@@ -30,5 +34,5 @@ guarantee.
 - Jamf Pro Classic, Declaration Reporting, and Compliance Benchmarks are not
   supported: the gateway does not expose them
   ([JPM-0005](decisions/JPM-0005-unsupported-api-groups.md)).
-- No test suite yet.
-- No pagination helper; callers drive `page` themselves, and `page` is 0-based.
+- No typed compound tools yet; `platformRequest` covers the surface meanwhile.
+- `device-actions` is hosted but unverified — every route in it is a write.

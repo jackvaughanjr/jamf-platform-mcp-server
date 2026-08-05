@@ -1,54 +1,120 @@
-# jamf-platform-mcp-server
+# jamf-platform-mcp-server: MCP server for the Jamf Platform API Gateway
 
-An MCP server for the **Jamf Platform API Gateway**, authenticating with OAuth 2.0
-client credentials rather than user-account tokens.
+![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
+![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
+![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
+![Tests](https://img.shields.io/badge/tests-31%20passing-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
+![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
+![Node](https://img.shields.io/badge/node-%3E%3D20-339933)
 
-> **Status: early scaffold, and the upstream API is itself a public beta.**
-> The Platform API Gateway has no published breaking-change protocol and no
-> announced GA date. Pin your dependencies and expect churn.
+An MCP server that gives AI assistants read access to a Jamf fleet through the
+**Jamf Platform API Gateway**, authenticating with OAuth 2.0 client credentials
+rather than user-account tokens. That choice is the point of the project: scoped
+machine credentials mean the permission boundary is enforced by Jamf, so a
+read-only integration cannot mutate a fleet no matter what this code does — see
+[JPM-0001](decisions/JPM-0001-target-platform-api-gateway.md).
+Canonical location: `github.com/jackvaughanjr/jamf-platform-mcp-server`.
 
-## Why the Platform API
+**Tier:** Prototype — no production dependants, upstream API in public beta, minor
+versions may break.
 
-The gateway is a single entry point across Jamf's APIs, and it carries the
-existing Jamf Pro API and Classic API through it — per Jamf, "the same APIs many
-of you are familiar with, now brought into the fold," where migrating means
-updating the base URL and auth. So targeting the gateway costs no endpoint
-coverage while adding the newer unified APIs:
+> **The upstream API is a public beta.** The Platform API Gateway has no published
+> breaking-change protocol and no announced GA date. Pin dependencies and expect
+> churn. Three documented API groups are not reachable at all
+> ([JPM-0005](decisions/JPM-0005-unsupported-api-groups.md)).
 
-| Available in beta | On Jamf's roadmap |
-| --- | --- |
-| Jamf Pro API, Jamf Pro Classic API | Jamf Protect |
-| Blueprints (declarative device management) | Jamf Security Cloud |
-| Declaration Reporting | One-click OAuth integrations |
-| Compliance Benchmarks | |
-| Devices, Device Groups, Device Management Actions | |
+## Provenance
 
-The auth model is the real draw. Client credentials give a machine identity with
-fine-grained per-product scopes (`read:pro:blueprints` and friends), so the
-safety boundary can live in **credential provisioning** rather than in
-application logic. A read-only integration cannot wipe a device no matter what
-bug you ship, because the gateway refuses the call. `JAMF_READ_ONLY` in this
-repo is a convenience backstop, not the guarantee — provision scopes narrowly.
+Seeded from [dbankscard/jamf-mcp-server](https://github.com/dbankscard/jamf-mcp-server)
+(MIT) — a mature community MCP server for Jamf Pro. Its **tool taxonomy** informed
+this project, particularly the compound-tool idea of answering a whole fleet
+question in one call rather than making a model loop over per-device requests. No
+code was copied; the client here is written against a different API with a
+different auth model. The original copyright notice is retained in
+[LICENSE](LICENSE) as the MIT licence requires. Reasoning:
+[JPM-0002](decisions/JPM-0002-new-repo-not-a-fork.md).
+
+Related work worth knowing about:
+
+- [Jamf-Concepts/mcp-hub](https://github.com/Jamf-Concepts/mcp-hub) — Jamf's own
+  open-source MCP server (Python, Beta) for Jamf Pro, Protect and Security Cloud
+- [`developer.jamf.com/mcp`](https://developer.jamf.com/developer-guide/docs/mcp) —
+  Jamf-hosted MCP server for documentation search, not tenant management
+
+## Structure
+
+```
+src/
+  index.ts              MCP server: tool registration, stdio transport
+  platform-client.ts    every gateway concern — auth, token cache, URL shapes, paging
+  config.ts             environment validation (zod)
+  *.test.ts             unit tests (vitest)
+decisions/              architectural decision records, JPM- prefix, immutable
+docs/
+  gateway-reference.md  observed gateway behaviour: paths, status semantics, paging
+  endpoint-inventory.md documented endpoint surface, compiled from Jamf's llms.txt
+fixtures/
+  shapes/               type-only response schemas — committed
+  raw/                  captured responses — GITIGNORED, live fleet data
+  discovery-report.md   empirical record of what resolves
+scripts/
+  discover-gateway.sh   resolves service segments, enumerates hosting, derives shapes
+  fetch-blueprints.sh   standalone Blueprints smoke test
+  check-adr-immutability.sh
+.githooks/pre-commit    rejects force-added ignored files; enforces ADR immutability
+```
+
+## Current state (as of 2026-08-05)
+
+Working and confirmed against a live tenant:
+
+| segment | resource | notes |
+|---|---|---|
+| `blueprints` | `blueprints` | `totalCount`-only envelope |
+| `blueprints` | `blueprint-components` | records keyed `identifier`, not `id` |
+| `devices` | `devices` | full paging envelope; spans macOS **and** iOS |
+| `device-groups` | `device-groups` | full envelope; exposes `memberCount` |
+| `pro` | 300+ resources | the Jamf Pro API in full |
+
+**Not supported**, because the gateway does not expose them: Jamf Pro Classic,
+Declaration Reporting, Compliance Benchmarks. This is an evidenced conclusion, not
+an omission — see [JPM-0005](decisions/JPM-0005-unsupported-api-groups.md) and
+[`docs/gateway-reference.md`](docs/gateway-reference.md).
+
+Tools: `platformRequest` (authenticated passthrough to any gateway route) and
+`listBlueprints` (typed example). Tool count stays deliberately small
+([JPM-0003](decisions/JPM-0003-passthrough-plus-selective-typed-tools.md)).
+
+Not done yet: no typed compound tools, and `device-actions` is hosted but
+unverified because every route in it is a write.
 
 ## Setup
 
 ```bash
-npm install
-cp .env.example .env   # fill in credentials
+npm install                    # also points core.hooksPath at .githooks
+cp .env.op.example .env.op     # edit to match your 1Password vault/item
 npm run build
 ```
 
-Create an integration under **Jamf Account → Integrations** to get a client ID
-and secret. The secret is shown exactly once at creation.
+Create an integration in **Jamf Account → Integrations**. A read-only integration
+is sufficient and strongly preferred. The client secret is shown exactly once.
 
 | Variable | Required | Notes |
-| --- | --- | --- |
-| `JAMF_CLIENT_ID` | yes | From your Jamf Account integration |
-| `JAMF_CLIENT_SECRET` | yes | Shown once at creation |
-| `JAMF_TENANT_ID` | yes | Appears in the gateway path |
-| `JAMF_GATEWAY_BASE_URL` | no | Defaults to `https://us.apigw.jamf.com`; override for other regions |
-| `JAMF_TOKEN_URL` | no | Defaults to `<base>/auth/token` |
-| `JAMF_READ_ONLY` | no | Defaults to `true`; set `false` to permit writes |
+|---|---|---|
+| `JAMF_CLIENT_ID` | yes | from the integration |
+| `JAMF_CLIENT_SECRET` | yes | shown once at creation |
+| `JAMF_TENANT_ID` | yes | appears in every gateway path |
+| `JAMF_GATEWAY_BASE_URL` | no | defaults to `https://us.apigw.jamf.com` |
+| `JAMF_TOKEN_URL` | no | defaults to `<base>/auth/token` |
+| `JAMF_READ_ONLY` | no | defaults to `true`; a backstop, **not** the guarantee |
+
+Credentials are injected at runtime so the secret never lands on disk:
+
+```bash
+op run --env-file=.env.op -- npm run dev
+```
 
 ### Register with Claude Code
 
@@ -56,78 +122,70 @@ and secret. The secret is shown exactly once at creation.
 claude mcp add jamf-platform -- node /absolute/path/to/dist/index.js
 ```
 
-Or in `claude_desktop_config.json`:
+## Conventions
 
-```json
-{
-  "mcpServers": {
-    "jamf-platform": {
-      "command": "node",
-      "args": ["/absolute/path/to/dist/index.js"],
-      "env": {
-        "JAMF_CLIENT_ID": "...",
-        "JAMF_CLIENT_SECRET": "...",
-        "JAMF_TENANT_ID": "..."
-      }
-    }
-  }
-}
+- **ISO dates** (`YYYY-MM-DD`) everywhere, including in dated snapshots above.
+- **ADRs are immutable** once committed. Correct one by superseding it, never by
+  editing. Enforced by `scripts/check-adr-immutability.sh` via the pre-commit
+  hook; `ADR_ALLOW_EDIT=1` covers the sanctioned exceptions. Prefix: **`JPM-`**.
+- **Decisions vs findings.** `decisions/` holds decisions and is immutable.
+  `docs/gateway-reference.md` holds observations about a beta API and is expected
+  to change. Do not mix them.
+- **Never `git add -f`.** The ignore list is a data-handling boundary guarding the
+  client secret and captured fleet data; a pre-commit hook enforces it.
+- **Never commit a captured API response.** Only type-only shapes
+  ([JPM-0004](decisions/JPM-0004-type-only-fixtures.md)).
+- **Confirm routes empirically.** A Jamf docs section is not evidence a route
+  exists — the documentation has been wrong three times about this gateway.
+- **Commit messages** explain *why*, and state explicitly when they retract an
+  earlier conclusion. Descriptive imperative subjects; not Conventional Commits,
+  which is why there is no badge claiming otherwise.
+
+## Versioning
+
+[SemVer 2.0.0](https://semver.org/spec/v2.0.0.html). `package.json` is the single
+source of the version. Changes are recorded in
+[CHANGELOG.md](CHANGELOG.md) per [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Releases are tagged `vX.Y.Z`.
+
+While the gateway remains in public beta, **minor versions may carry breaking
+changes** — the upstream contract offers no stability guarantee, so strict SemVer
+against it would be a false promise.
+
+## Testing
+
+```bash
+npm test              # vitest, 31 tests
+npm run typecheck
+DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix, no credentials needed
+npm run inspector                          # MCP handshake against the built server
 ```
 
-## Tools
+Tests never reach the gateway: `fetch` is stubbed per test and credentials are
+fixtures. The suite is mutation-checked — removing the `totalCount` pagination
+fallback, making paging 1-based, or disabling the read-only guard each cause
+failures.
 
-| Tool | Purpose |
-| --- | --- |
-| `platformRequest` | Authenticated request against any gateway endpoint. Builds `/api/{service}/{version}/tenant/{tenantId}/{resource}` and attaches a bearer token. |
-| `listBlueprints` | Typed example against the one endpoint the beta guide documents concretely. Copy this shape as you add coverage. |
+## Pull request and review policy
 
-`platformRequest` is deliberate: while the gateway surface is still growing, a
-general escape hatch beats a fixed set of wrappers, because you can explore the
-API conversationally before deciding which calls deserve typed tools.
+Single maintainer at present, so changes land directly on `main`. On a second
+contributor: branch protection on `main`, one non-author approval, and
+`decisions/` changes reviewed by someone other than the author.
 
-## Design notes
+Every change should pass `npm test`, `npm run typecheck`, and `npm run build`.
+Anything touching `src/platform-client.ts` should also be exercised against a live
+tenant, since no test can confirm the gateway's actual behaviour.
 
-- **The service segment is not the scope prefix.** Blueprints requires the scope
-  `read:pro:blueprints` but lives at `/api/blueprints/...`. Deriving the URL from
-  the scope name produces `/api/pro/...` and a 404 that reads like a permissions
-  failure. Confirm each service segment against the reference before adding a
-  tool — `scripts/fetch-blueprints.sh` is the known-good reference for Blueprints.
-- **List endpoints page with `page` and `page-size`, and `page` is 0-based.**
-  Responses carry `totalCount` and `results[]`.
-- **All gateway concerns live in `src/platform-client.ts`.** The API is in beta;
-  when the contract shifts there should be one file to fix.
-- **Token caching handles the 900-second lifetime** with a 60-second refresh
-  skew, and de-duplicates concurrent refreshes — MCP servers fan out tool calls,
-  and a cold start would otherwise fire several token requests at once.
-- **Nothing writes to stdout but MCP protocol traffic.** Logs go to stderr, and
-  `dotenv` is loaded with `quiet: true` because v17 prints a banner to stdout
-  that corrupts the JSON-RPC stream.
+## Cross-reference
 
-## Roadmap
-
-- [ ] Port the compound-tool pattern (one call answering a real fleet question,
-      fanning out internally) instead of one tool per endpoint
-- [ ] Evaluate a sandboxed-SDK mode over one-tool-per-endpoint, which scales
-      better as gateway coverage grows
-- [ ] Replace hand-rolled compliance logic with the Compliance Benchmarks API
-- [ ] Tests against a recorded gateway fixture
-
-## Attribution
-
-This project began as a port of
-[dbankscard/jamf-mcp-server](https://github.com/dbankscard/jamf-mcp-server)
-(MIT) to the Jamf Platform API. That project's tool taxonomy — particularly its
-compound tools that answer a fleet question in one call — informed the design
-here. The original copyright notice is retained in [LICENSE](LICENSE) as the MIT
-License requires.
-
-Related work worth knowing about:
-
-- [Jamf-Concepts/mcp-hub](https://github.com/Jamf-Concepts/mcp-hub) — Jamf's own
-  open-source MCP server (Python, Beta) for Jamf Pro, Protect, and Security Cloud
-- [`https://developer.jamf.com/mcp`](https://developer.jamf.com/developer-guide/docs/mcp) —
-  Jamf-hosted MCP server for developer documentation search, not tenant management
+- [CONTRIBUTING.md](CONTRIBUTING.md) — setup, enforced rules, how to add an endpoint
+- [CLAUDE.md](CLAUDE.md) — working rules for AI assistants in this repo
+- [decisions/](decisions/) — why the project is built this way
+- [docs/gateway-reference.md](docs/gateway-reference.md) — observed gateway behaviour
+- [docs/endpoint-inventory.md](docs/endpoint-inventory.md) — documented endpoint surface
+- [fixtures/discovery-report.md](fixtures/discovery-report.md) — empirical results
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Retains the original copyright notice from
+`dbankscard/jamf-mcp-server` alongside this project's.
