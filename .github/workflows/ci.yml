@@ -1,0 +1,87 @@
+name: CI
+
+# The contract's enforcement point. Everything here is also a local git hook or an
+# npm script, so a contributor can run the whole thing before pushing — CI exists to
+# make it non-optional, not to be the only place it happens.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The identifier and ADR guards compare against git history, so a shallow
+          # clone would make them pass vacuously.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # `npm ci` respects the lockfile; `npm install` could silently resolve
+      # different versions than were tested.
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      # No live identifiers in tracked files. Runs over everything, not just the
+      # diff, so a leak that slipped in earlier cannot ride along unnoticed.
+      - name: No live identifiers
+        run: ./scripts/check-no-identifiers.sh
+
+      # Committed ADRs are immutable. Compares the PR head against main rather than
+      # the index, since a pre-commit hook cannot police a branch pushed from a
+      # clone that never installed the hooks.
+      - name: ADRs unchanged
+        if: github.event_name == 'pull_request'
+        run: |
+          changed=$(git diff --name-status "origin/${{ github.base_ref }}"...HEAD \
+            --diff-filter=MDR -- 'decisions/[A-Z]*-[0-9][0-9][0-9][0-9]-*.md' || true)
+          if [ -n "$changed" ]; then
+            echo "::error::A committed ADR was modified, deleted or renamed:"
+            echo "$changed"
+            echo "Supersede it with a new record instead. See decisions/README.md."
+            exit 1
+          fi
+
+      # The server must be startable and speak MCP. Credentials are fixtures; no
+      # tenant is contacted.
+      - name: MCP handshake
+        env:
+          JAMF_CLIENT_ID: ci-fixture
+          JAMF_CLIENT_SECRET: ci-fixture
+          JAMF_TENANT_ID: ci-fixture
+        run: |
+          printf '%s\n%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            | node dist/index.js 2>/dev/null > /tmp/mcp.out
+          # stdout is the MCP transport; anything non-JSON on it breaks the handshake.
+          node -e '
+            const lines = require("fs").readFileSync("/tmp/mcp.out","utf8").trim().split("\n").filter(Boolean);
+            const msgs = lines.map((l) => JSON.parse(l));
+            const tools = msgs.find((m) => m.result?.tools)?.result.tools ?? [];
+            if (tools.length === 0) { console.error("no tools listed"); process.exit(1); }
+            console.log(`handshake OK, ${tools.length} tools`);
+          '
+
+      # DRY_RUN needs no credentials, and a broken probe table should fail here
+      # rather than when someone spends real requests on it.
+      - name: Discovery script dry run
+        run: DRY_RUN=1 ./scripts/discover-gateway.sh > /dev/null

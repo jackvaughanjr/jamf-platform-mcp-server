@@ -310,13 +310,19 @@ describe('selectOutdatedDevices', () => {
 });
 
 describe('looksLikeUuid', () => {
-  it('accepts a real UUID and rejects a name', () => {
-    expect(looksLikeUuid('8dce9404-4779-49cc-825b-428ac74eddc9')).toBe(true);
-    expect(looksLikeUuid('  8DCE9404-4779-49CC-825B-428AC74EDDC9  ')).toBe(true);
+  // Test UUIDs use the reserved `deadbeef-` prefix so a real identifier copied in
+  // from live output is immediately visible, and so
+  // scripts/check-no-identifiers.sh can flag it. This literal was originally a
+  // genuine device id pasted from a tenant response — the leak that guard exists for.
+  const FAKE = 'deadbeef-0000-4000-8000-000000000001';
+
+  it('accepts a well-formed UUID and rejects a name', () => {
+    expect(looksLikeUuid(FAKE)).toBe(true);
+    expect(looksLikeUuid(`  ${FAKE.toUpperCase()}  `)).toBe(true);
     expect(looksLikeUuid('All Managed')).toBe(false);
-    expect(looksLikeUuid('8dce9404')).toBe(false);
+    expect(looksLikeUuid('deadbeef')).toBe(false);
     // A trailing segment makes it not a bare id — must not be treated as one.
-    expect(looksLikeUuid('8dce9404-4779-49cc-825b-428ac74eddc9/members')).toBe(false);
+    expect(looksLikeUuid(`${FAKE}/members`)).toBe(false);
   });
 });
 

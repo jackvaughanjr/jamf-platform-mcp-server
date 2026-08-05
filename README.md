@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-110%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-119%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -175,7 +175,7 @@ against it would be a false promise.
 ## Testing
 
 ```bash
-npm test              # vitest, 110 tests
+npm test              # vitest, 119 tests
 npm run typecheck
 DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix, no credentials needed
 ```
@@ -214,6 +214,27 @@ fallback, making paging 1-based, disabling the read-only guard, misclassifying
 iPads as Macs, treating an unparseable timestamp as a recent check-in, letting an
 empty search query match every device, and counting an absent `managed` flag as
 unmanaged.
+
+## The contribution contract
+
+[CONTRIBUTING.md](CONTRIBUTING.md) is written as a contract, separating what a guard
+will stop you doing from what a human reviews. Three rules are mechanically enforced
+by a pre-commit hook and by CI:
+
+| Rule | Enforced by |
+|---|---|
+| No live identifiers in tracked files — including test fixtures | `scripts/check-no-identifiers.sh` |
+| No captured API responses committed; never `git add -f` | `.githooks/pre-commit` |
+| Committed ADRs are immutable — supersede, never edit | `scripts/check-adr-immutability.sh` + CI base-branch diff |
+
+`src/conventions.test.ts` additionally asserts the conventions that drifted during
+early development: the test-count badge matches reality, ADR numbering is sequential
+and fully indexed, every superseded record names its successor, and the README does
+not cite a superseded ADR as guidance.
+
+Test UUIDs use the reserved `deadbeef-` prefix, so an identifier copied out of live
+output is visible rather than plausible. That rule exists because a real device id
+reached a test file exactly that way.
 
 ## Pull request and review policy
 

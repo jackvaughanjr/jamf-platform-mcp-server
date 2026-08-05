@@ -23,6 +23,12 @@ if [ -x "$REPO_ROOT/scripts/check-adr-immutability.sh" ]; then
   "$REPO_ROOT/scripts/check-adr-immutability.sh" || exit 1
 fi
 
+# No live identifiers in tracked files. Staged-only, so the hook stays fast and
+# does not fail on pre-existing content a contributor did not touch.
+if [ -x "$REPO_ROOT/scripts/check-no-identifiers.sh" ]; then
+  "$REPO_ROOT/scripts/check-no-identifiers.sh" --staged || exit 1
+fi
+
 staged="$(git diff --cached --name-only --diff-filter=ACM)"
 [ -n "$staged" ] || exit 0
 
