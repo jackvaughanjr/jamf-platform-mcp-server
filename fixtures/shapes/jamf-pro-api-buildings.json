@@ -1,0 +1,15 @@
+{
+  "totalCount": "number",
+  "results": [
+    {
+      "id": "string",
+      "name": "string",
+      "streetAddress1": "string",
+      "streetAddress2": "string",
+      "city": "string",
+      "stateProvince": "string",
+      "zipPostalCode": "string",
+      "country": "string"
+    }
+  ]
+}

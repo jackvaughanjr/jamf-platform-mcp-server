@@ -116,6 +116,14 @@ PROBES=(
   # contrast case.
   "_control-bogus-service|zz-no-such-service-control|things|tenant"
 
+  # Decides whether a 400 REQUEST_CONTEXT_NOT_PROVIDED says anything about the
+  # route. A bogus FLAT route under the working `pro` segment: if it also returns
+  # 400, the gateway resolves tenant context before matching routes and 400 is
+  # silent about existence — so the 400 on /api/pro/v1/device-declarations is NOT
+  # evidence that route is real. If it returns 403 BAD_PERMISSIONS instead, then
+  # 400 does mark a real route missing only its tenant header.
+  "_control-bogus-flat-route|pro|zz-no-such-flat-route-control|flat"
+
   "blueprints|blueprints|blueprints|tenant"
 
   # `components` under blueprints is an unknown route (BAD_PERMISSIONS, same as
@@ -144,11 +152,30 @@ PROBES=(
   # /tenant/{tenantid}/accounts/groupname/{name}, i.e. NO /JSSResource/ prefix
   # and NO version segment. Every earlier probe carried a prefix that does not
   # exist. raw style is the only one that can express this.
-  "jamf-pro-classic|pro|/tenant/{TENANT}/buildings /tenant/{TENANT}/categories /tenant/{TENANT}/accounts|raw"
+  # Group names must be unique — they key the raw/shape filenames, so a duplicate
+  # silently overwrites the other's fixtures.
+  "jamf-pro-classic-noversion|pro|/tenant/{TENANT}/buildings /tenant/{TENANT}/categories /tenant/{TENANT}/accounts|raw"
 
-  # Same Classic resources but versioned, in case the gateway does add /v1.
-  "jamf-pro-classic-versioned|pro|buildings categories accounts|tenant"
+  # NOT Classic — mislabelled in an earlier run. /api/pro/v1/tenant/{t}/buildings
+  # returns 200 but with the Jamf Pro API's shape ({totalCount, results[]} and
+  # streetAddress1/stateProvince/zipPostalCode fields), whereas Classic wraps as
+  # {"buildings":[...]}. So this probe confirms another Jamf Pro API resource and
+  # says nothing about Classic. Kept as a Pro-API sample.
+  "jamf-pro-api-buildings|pro|buildings|tenant"
+
+  # Classic proper. Distinguishable ONLY by response shape: Classic wraps in a
+  # named key ({"buildings":[...]}), Pro API uses {totalCount, results[]}. These
+  # resources exist ONLY in Classic — there is no Jamf Pro API equivalent — so a
+  # 200 here cannot be confused with a Pro API hit.
+  "jamf-pro-classic|pro|activationcode allowedfileextensions diskencryptionconfigurations|tenant flat"
 )
+
+# Group names key the raw/shape/error filenames, so a duplicate silently
+# overwrites another group's fixtures and produces two contradictory report rows.
+# Fail loudly at startup instead.
+_dupes="$(printf '%s\n' "${PROBES[@]}" | cut -d'|' -f1 | sort | uniq -d)"
+[ -z "$_dupes" ] || die "duplicate probe group name(s), which would overwrite fixtures: $(printf '%s' "$_dupes" | tr '\n' ' ')"
+unset _dupes
 
 # ── token, refreshed proactively (gateway tokens are ~900s) ──────────────────
 TOKEN=""; TOKEN_AT=0; REFRESH_AFTER=700
@@ -266,6 +293,42 @@ else
   enumerate_services
 fi
 
+# ── tenant-context header discovery ──────────────────────────────────────────
+# A flat-style route answers 400 REQUEST_CONTEXT_NOT_PROVIDED — "Request context
+# not provided in token or headers." The header name is not documented anywhere
+# we can reach, so try the plausible spellings against a route known to produce
+# that error and see which one changes the outcome. Any status other than 400
+# means the header was understood.
+HEADER_CANDIDATES=(
+  X-Jamf-Tenant-Id X-Jamf-TenantId X-Jamf-Tenant
+  X-Tenant-Id X-TenantId Tenant-Id Jamf-Tenant-Id Jamf-Tenant
+  X-Jamf-Request-Context X-Request-Context
+)
+HEADER_TABLE=""
+discover_context_header() {
+  local probe_url="${BASE}/api/pro/v1/device-declarations"
+  local h status body_file verdict
+  for h in "${HEADER_CANDIDATES[@]}"; do
+    body_file="$(mktemp)"
+    status="$(curl -sS -o "$body_file" -w '%{http_code}' \
+      -H "$(auth_header)" -H 'Accept: application/json' \
+      -H "${h}: ${JAMF_TENANT_ID}" "$probe_url" || echo "000")"
+    if grep -q 'REQUEST_CONTEXT_NOT_PROVIDED' "$body_file" 2>/dev/null; then
+      verdict="ignored (still 400)"
+    else
+      verdict="CHANGED OUTCOME -> $status"
+    fi
+    printf '  %-24s %s\n' "$h" "$verdict" >&2
+    HEADER_TABLE="${HEADER_TABLE}| \`${h}\` | ${verdict} |"$'\n'
+    rm -f "$body_file"
+  done
+}
+
+if [ "${DRY_RUN:-}" != "1" ]; then
+  note "probing ${#HEADER_CANDIDATES[@]} tenant-context header names…"
+  discover_context_header
+fi
+
 {
   printf '# Gateway discovery report\n\n'
   printf 'Gateway: `%s`\n\n' "$BASE"
@@ -291,6 +354,15 @@ fi
     printf '403 BAD_PERMISSIONS means the segment is real, 404 means it is not.\n\n'
     printf '| candidate | hosted |\n|---|---|\n'
     printf '%s' "$SERVICE_TABLE"
+    printf '\n'
+  fi
+  if [ -n "$HEADER_TABLE" ]; then
+    printf '## Tenant-context header candidates\n\n'
+    printf 'Probed against `/api/pro/v1/device-declarations`, which answers 400\n'
+    printf '`REQUEST_CONTEXT_NOT_PROVIDED` without a tenant in the path. Anything other\n'
+    printf 'than a repeated 400 means the header was understood.\n\n'
+    printf '| header | result |\n|---|---|\n'
+    printf '%s' "$HEADER_TABLE"
     printf '\n'
   fi
   printf '## Routes\n\n'
