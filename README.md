@@ -165,8 +165,23 @@ against it would be a false promise.
 npm test              # vitest, 50 tests
 npm run typecheck
 DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix, no credentials needed
-npm run inspector                          # MCP handshake against the built server
 ```
+
+To exercise a tool against a live tenant:
+
+```bash
+op run --env-file=.env.op -- node scripts/call-tool.mjs tools/list
+op run --env-file=.env.op -- node scripts/call-tool.mjs getFleetOverview
+op run --env-file=.env.op -- node scripts/call-tool.mjs findDevices '{"query":"MacBook"}'
+```
+
+**Not `npm run inspector` under `op run`.** The MCP Inspector spawns the server as
+a child process without forwarding the parent environment, so injected credentials
+never reach it and the server exits on config validation. Its `-e` flag would work
+but puts the client secret on a command line where `ps` can read it.
+`scripts/call-tool.mjs` spawns the server with the environment inherited, so
+credentials go straight to the process that needs them. Its output can contain live
+fleet data — redirect to a gitignored path if you keep it.
 
 Tests never reach the gateway: `fetch` is stubbed per test and credentials are
 fixtures. The suite is mutation-checked rather than assumed useful — each of these

@@ -24,7 +24,8 @@
     "inspector": "npx @modelcontextprotocol/inspector dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "call": "node scripts/call-tool.mjs"
   },
   "keywords": [
     "mcp",
