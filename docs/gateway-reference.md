@@ -136,6 +136,13 @@ being averaged away.
 `lastContactTime` was null on every record sampled, so its semantics are unknown;
 do not assume it is a usable signal.
 
+Confirmed over a full fleet fetch: `lastCheckInTime` is populated on exactly the
+macOS devices and no others, and `lastInventoryUpdateTime` is populated on every
+record. More useful still, inventory-update supplied the freshest value for the
+large majority of devices **including Macs that have both fields** — so it is the
+better primary signal generally, not merely a mobile fallback. Treat check-in as
+supplementary.
+
 ## Pagination, confirmed live
 
 A real page-1 request (`?page=1&page-size=5`) returned different records from page
