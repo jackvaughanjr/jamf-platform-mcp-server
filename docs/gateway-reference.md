@@ -37,6 +37,31 @@ has ever worked.
 reach its own backend. Nothing a client can do; report it to Jamf. A canary probe
 remains in the discovery script.
 
+### Confirmed Classic routes under `proclassic`
+
+All verified live. Path shape is `/api/proclassic/tenant/{tenantId}/{resource}` —
+no version segment, no `/JSSResource/` prefix.
+
+| resource | detail path | notes |
+|---|---|---|
+| `scripts` | `/scripts/id/{id}` | detail carries `script_contents` and `script_contents_encoded` |
+| `policies` | `/policies/id/{id}` | detail carries `general.trigger_*`, `general.frequency`, `scripts[]` |
+| `computerextensionattributes` | `/computerextensionattributes/id/{id}` | detail carries `input_type.script`. **The detail path is not documented** — it was inferred from the scripts/policies convention and then confirmed working |
+| `computerinventorycollection` | — | single object; includes `home_directory_sizes` |
+| `activationcode` | — | the smallest useful smoke test |
+
+**Classic JSON wraps collections in the PLURAL key** — `{"scripts": [...]}` — while
+the reference pages describe the XML schema, which names the repeated singular
+element plus a `size` count. Reading the docs literally and looking for `script`
+finds nothing, and returning an empty list on a miss produces a false all-clear.
+`extractClassicList` tries both and throws when neither matches.
+
+Detail responses wrap in the **singular** key (`{"script": {...}}`).
+
+Three fields are misspelled in the live API: `inclue_applications`, `inclue_fonts`,
+`inclue_plugins`. Accept both spellings so an upstream fix does not silently read as
+"not enabled".
+
 ### Response conventions differ by group
 
 - **Classic** (`proclassic`) wraps in a named key with `snake_case` fields, has no
