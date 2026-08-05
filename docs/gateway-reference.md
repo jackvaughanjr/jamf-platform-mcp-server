@@ -38,6 +38,39 @@ components is `blueprint-components`, not `components`, despite sitting under th
 **Jamf Pro versions are per-resource.** `account-groups` is v1, `enrollment` v3,
 `computers-inventory` v4. Never carry a version from one resource to the next.
 
+## ⚠️ Under revision — three "unreachable" groups have documented paths
+
+The conclusion recorded here and in
+[JPM-0005](../decisions/JPM-0005-unsupported-api-groups.md) — that Jamf Pro
+Classic, Declaration Reporting and Compliance Benchmarks are not exposed — was
+reached without reading the **individual endpoint reference pages**. Only index
+`llms.txt` files were consulted. Those pages publish the paths outright:
+
+| group | documented base + path |
+|---|---|
+| Jamf Pro Classic | `/api/proclassic` + `/tenant/{tenantId}/{resource}` — no version, no `/JSSResource/` |
+| Declaration Reporting | `/api/ddm/report` + `/v1/tenant/{tenantId}/devices/{deviceId}/channels` |
+| Compliance Benchmarks | `/api/compliance-benchmarks` + `/v1/tenant/{tenantId}/benchmarks` |
+
+Why each was missed:
+
+- **`proclassic` was never a candidate.** Probes tried `classic`,
+  `jamf-pro-classic`, `jssresource` and `pro`.
+- **`ddm/report` is a two-segment prefix.** Every probe assumed
+  `/api/{one-segment}/`, so `ddm` enumerated as "not hosted" even though the group
+  is served under it.
+- **Compliance Benchmarks takes a tenant segment.** Probing settled on the `flat`
+  variant, whose gateway-level 403 was misread as the whole segment being blocked.
+
+**Pending live verification.** These paths are documentation, and this project's
+documentation has been wrong repeatedly — they are not confirmed until a probe
+returns 200. `scripts/discover-gateway.sh` carries them now. JPM-0005 will be
+superseded once there is evidence either way.
+
+Also from those pages: Declaration Reporting paginates with **`page` and `size`**,
+not `page` and `page-size`. Paging parameter names are not uniform across groups,
+so `requestAll` is wrong for that group as written.
+
 ## Hosted service segments
 
 Enumerable, because a route that cannot exist returns 403 under a hosted segment

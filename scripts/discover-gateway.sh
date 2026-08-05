@@ -132,11 +132,26 @@ PROBES=(
   "devices|devices|devices|tenant"
   "device-groups|device-groups|device-groups|tenant"
 
-  # Canary, not discovery. The segment is refused wholesale, so this one probe
-  # exists only to notice if Jamf ever unblocks it. A 200 or a BAD_PERMISSIONS
-  # here — anything other than the gateway's "Requested endpoint is forbidden" —
-  # means the segment opened up and is worth probing properly again.
-  "compliance-benchmarks|compliance-benchmarks|benchmarks|flat"
+  # DOCUMENTED PATHS, from the individual endpoint reference pages — which earlier
+  # passes never read, relying on index files instead. Every one of these three
+  # groups was wrongly declared unreachable as a result.
+  #
+  # gettenantbenchmarks documents:
+  #   https://{region}.apigw.jamf.com/api/compliance-benchmarks + /v1/tenant/{t}/benchmarks
+  # i.e. tenant style, not the flat variant that produced a gateway-level 403.
+  "compliance-benchmarks|compliance-benchmarks|benchmarks|tenant"
+
+  # findactivationcode-1 documents:
+  #   https://{region}.apigw.jamf.com/api/proclassic + /tenant/{t}/activationcode
+  # The segment is `proclassic` — never tried — and there is NO version segment and
+  # no /JSSResource/ prefix. Only the raw style can express that.
+  "jamf-pro-classic|proclassic|/tenant/{TENANT}/activationcode /tenant/{TENANT}/buildings /tenant/{TENANT}/categories|raw"
+
+  # getdevicechannels and getdeclarationreportbyfilter both document:
+  #   https://{region}.apigw.jamf.com/api/ddm/report + /v1/tenant/{t}/...
+  # A TWO-SEGMENT service prefix. Every prior probe assumed one segment, which is
+  # why `ddm` alone enumerated as not hosted. {DEVICE} borrows a real device id.
+  "declaration-reporting|ddm/report|devices/{DEVICE}/channels devices/{DEVICE}/declarations|tenant"
 
   # CONFIRMED: segment pro, style tenant. Unlocks the 300+ Jamf Pro API surface.
   "jamf-pro|pro|account-groups|tenant"
@@ -242,12 +257,18 @@ fi
 # 404 under one the gateway does not host. So probing a deliberately bogus route
 # against each candidate name tells us which segments exist, without knowing a
 # single valid route inside them.
-# Confirmed hosted on 2026-08-04: blueprints, devices, device-groups, pro,
-# device-actions. compliance-benchmarks answers 403 even for a bogus route, so
-# the gateway refuses that whole segment rather than a particular path.
-# Everything else below returned 404 — including classic, jssresource,
-# declarations, declaration-reporting, protect and security-cloud.
+# KNOWN LIMITATION of this enumeration: it only probes SINGLE-segment prefixes.
+# Declaration Reporting is served at /api/ddm/report — two segments — so `ddm`
+# enumerated as "not hosted" while the group is in fact reachable. A negative
+# result here means "not hosted under this exact single segment", NOT "not
+# reachable". Multi-segment candidates must be listed explicitly.
+#
+# Confirmed hosted 2026-08-04: blueprints, devices, device-groups, pro,
+# device-actions. Everything else returned 404 or an ambiguous 403 — read that in
+# light of the limitation above.
 SERVICE_CANDIDATES=(
+  # Multi-segment and documented prefixes missed by earlier single-segment sweeps.
+  ddm/report proclassic
   blueprints devices device-groups pro compliance-benchmarks device-actions
   declarations declaration-reporting device-management-actions
   classic jamf-pro jamf-pro-classic jamf-pro-api jssresource
