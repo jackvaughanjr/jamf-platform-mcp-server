@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-50%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-55%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -66,6 +66,7 @@ fixtures/
 scripts/
   discover-gateway.sh   resolves service segments, enumerates hosting, derives shapes
   fetch-blueprints.sh   standalone Blueprints smoke test
+  call-tool.mjs         calls one MCP tool live; inherits env so `op run` works
   check-adr-immutability.sh
 .githooks/pre-commit    rejects force-added ignored files; enforces ADR immutability
 ```
@@ -92,10 +93,12 @@ and `platformRequest` (authenticated passthrough to any gateway route). Tool cou
 stays deliberately small
 ([JPM-0003](decisions/JPM-0003-passthrough-plus-selective-typed-tools.md)).
 
-Not yet run against a live tenant: the compound tools and `requestAll` are
-unit-tested and mutation-checked, but no real multi-page fetch has executed, so
-the gateway's actual paging behaviour is still unconfirmed. `device-actions` is
-hosted but unverified, because every route in it is a write.
+Pagination is confirmed live: a real page-1 request returned different records with
+`hasPrevious: true` and `totalPages: 13`, so `page` is 0-based as assumed and query
+parameters survive the passthrough.
+
+`device-actions` remains unverified, because every route in it is a write and no
+write scopes have been granted.
 
 ## Setup
 
@@ -162,7 +165,7 @@ against it would be a false promise.
 ## Testing
 
 ```bash
-npm test              # vitest, 50 tests
+npm test              # vitest, 55 tests
 npm run typecheck
 DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix, no credentials needed
 ```

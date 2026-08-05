@@ -116,6 +116,33 @@ The error text mentions context "in token or headers", hinting a token could be
 bound to a tenant at issue time. Untested, and not worth chasing while `tenant`
 style works.
 
+## Device timestamp fields are platform-dependent
+
+Confirmed over two pages of live records:
+
+| field | Macs | mobile (iPad/iPhone) |
+|---|---|---|
+| `lastCheckInTime` | populated | **always null** |
+| `lastContactTime` | null | null |
+| `lastInventoryUpdateTime` | populated | populated |
+
+**Never compute staleness from `lastCheckInTime` alone.** Doing so reports every
+mobile device as having never reported in — roughly a third of a mixed fleet —
+while their inventory timestamps are days old. `lastInventoryUpdateTime` is the
+only field populated across platforms. `src/fleet.ts` takes the freshest of the
+three and reports which field supplied it, so the gap stays visible instead of
+being averaged away.
+
+`lastContactTime` was null on every record sampled, so its semantics are unknown;
+do not assume it is a usable signal.
+
+## Pagination, confirmed live
+
+A real page-1 request (`?page=1&page-size=5`) returned different records from page
+0, with `page: 1`, `pageSize: 5`, `totalPages: 13`, `hasNext: true`,
+`hasPrevious: true`. So paging works as documented, `page` really is 0-based, and
+query parameters survive the `platformRequest` passthrough.
+
 ## Cross-platform endpoints
 
 `devices` and `device-groups` span macOS and iOS/iPadOS in a single list —

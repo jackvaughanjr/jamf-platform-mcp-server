@@ -40,6 +40,15 @@ guarantee.
 - Jamf Pro Classic, Declaration Reporting, and Compliance Benchmarks are not
   supported: the gateway does not expose them
   ([JPM-0005](decisions/JPM-0005-unsupported-api-groups.md)).
-- Compound tools and `requestAll` are unit-tested but have not yet run against a
-  live tenant, so the gateway's real paging behaviour remains unconfirmed.
+- `device-actions` is hosted but unverified — every route in it is a write, and no
+  write scopes have been granted.
+
+### Fixed
+
+- Device staleness no longer derives from `lastCheckInTime` alone. That field is
+  populated for Macs and null for every mobile device, so the original rule
+  reported roughly a third of a mixed fleet as never having reported in while
+  their inventory timestamps were days old. Staleness now takes the freshest of
+  `lastCheckInTime`, `lastContactTime` and `lastInventoryUpdateTime`, and reports
+  which field supplied it.
 - `device-actions` is hosted but unverified — every route in it is a write.

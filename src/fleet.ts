@@ -85,6 +85,40 @@ function ranked(counts: Record<string, number>): Array<{ key: string; count: num
     .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
 }
 
+/** Timestamp fields that can evidence a device having reported in, freshest wins. */
+export const SEEN_FIELDS = [
+  'lastCheckInTime',
+  'lastContactTime',
+  'lastInventoryUpdateTime',
+] as const;
+
+export type SeenSource = (typeof SEEN_FIELDS)[number];
+
+/**
+ * Most recent evidence that a device reported in, across all three timestamps.
+ *
+ * Do NOT use `lastCheckInTime` alone. Observed on a live tenant: it is populated
+ * for Macs and **null for every mobile device**, while `lastInventoryUpdateTime`
+ * is populated for both. `lastContactTime` was null on every record sampled.
+ * Keying staleness on check-in alone reported every iPad as never having reported
+ * in, which is a false alarm rather than a finding.
+ */
+export function lastSeen(device: DeviceRecord): { at: number | null; source: SeenSource | null } {
+  let at: number | null = null;
+  let source: SeenSource | null = null;
+  for (const field of SEEN_FIELDS) {
+    const raw = device[field];
+    if (!raw) continue;
+    const parsed = Date.parse(raw);
+    if (Number.isNaN(parsed)) continue;
+    if (at === null || parsed > at) {
+      at = parsed;
+      source = field;
+    }
+  }
+  return { at, source };
+}
+
 export interface DeviceSummary {
   total: number;
   byPlatform: Array<{ key: string; count: number }>;
@@ -92,8 +126,24 @@ export interface DeviceSummary {
   byEnrollmentType: Array<{ key: string; count: number }>;
   managed: number;
   unmanaged: number;
-  /** Devices whose last check-in is older than the threshold, or absent entirely. */
-  staleCheckIn: { thresholdDays: number; count: number; neverCheckedIn: number };
+  /**
+   * Staleness against the freshest of the three timestamps.
+   * `unreadable` covers a device carrying a timestamp none of which parses — it is
+   * counted stale rather than assumed healthy.
+   */
+  staleness: {
+    thresholdDays: number;
+    stale: number;
+    neverSeen: number;
+    unreadable: number;
+    /** Which field supplied the freshest value, so a platform gap is visible. */
+    bySource: Array<{ key: string; count: number }>;
+  };
+  /**
+   * How many records populate each timestamp field at all. Makes the Mac-only
+   * nature of `lastCheckInTime` explicit rather than hidden behind a total.
+   */
+  signalAvailability: Array<{ key: string; count: number }>;
 }
 
 /**
@@ -106,17 +156,25 @@ export function summarizeDevices(
 ): DeviceSummary {
   const cutoff = now.getTime() - staleThresholdDays * 24 * 60 * 60 * 1000;
   let stale = 0;
-  let never = 0;
+  let neverSeen = 0;
+  let unreadable = 0;
+  const sources: string[] = [];
 
   for (const d of devices) {
-    if (!d.lastCheckInTime) {
-      never += 1;
+    const { at, source } = lastSeen(d);
+    if (at === null) {
+      // Distinguish "no timestamp at all" from "a timestamp we cannot read".
+      const carriesSomething = SEEN_FIELDS.some((f) => Boolean(d[f]));
+      if (carriesSomething) {
+        unreadable += 1;
+        stale += 1;
+      } else {
+        neverSeen += 1;
+      }
       continue;
     }
-    const t = Date.parse(d.lastCheckInTime);
-    // An unparseable timestamp is not evidence of recency — count it as stale
-    // rather than silently treating it as healthy.
-    if (Number.isNaN(t) || t < cutoff) stale += 1;
+    sources.push(source ?? 'unknown');
+    if (at < cutoff) stale += 1;
   }
 
   return {
@@ -126,7 +184,17 @@ export function summarizeDevices(
     byEnrollmentType: ranked(tally(devices.map((d) => d.enrollmentType ?? 'unknown'))),
     managed: devices.filter((d) => d.managed === true).length,
     unmanaged: devices.filter((d) => d.managed === false).length,
-    staleCheckIn: { thresholdDays: staleThresholdDays, count: stale, neverCheckedIn: never },
+    staleness: {
+      thresholdDays: staleThresholdDays,
+      stale,
+      neverSeen,
+      unreadable,
+      bySource: ranked(tally(sources)),
+    },
+    signalAvailability: SEEN_FIELDS.map((field) => ({
+      key: field,
+      count: devices.filter((d) => Boolean(d[field])).length,
+    })),
   };
 }
 

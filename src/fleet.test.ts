@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  lastSeen,
   majorVersion,
   matchesDeviceQuery,
   platformOf,
@@ -46,12 +47,41 @@ describe('majorVersion', () => {
   });
 });
 
+describe('lastSeen', () => {
+  it('takes the freshest of the three timestamps', () => {
+    const { at, source } = lastSeen({
+      lastCheckInTime: daysAgo(10),
+      lastInventoryUpdateTime: daysAgo(1),
+    });
+    expect(source).toBe('lastInventoryUpdateTime');
+    expect(at).toBe(Date.parse(daysAgo(1)));
+  });
+
+  // The real-world shape: mobile devices report inventory but never check-in.
+  it('falls back to inventory time when check-in is null, as on every mobile device', () => {
+    const { at, source } = lastSeen({
+      lastCheckInTime: null,
+      lastContactTime: null,
+      lastInventoryUpdateTime: daysAgo(3),
+    });
+    expect(source).toBe('lastInventoryUpdateTime');
+    expect(at).not.toBeNull();
+  });
+
+  it('returns null when nothing is present or nothing parses', () => {
+    expect(lastSeen({}).at).toBeNull();
+    expect(lastSeen({ lastCheckInTime: null }).at).toBeNull();
+    expect(lastSeen({ lastCheckInTime: 'garbage' }).at).toBeNull();
+  });
+});
+
 describe('summarizeDevices', () => {
   const devices: DeviceRecord[] = [
-    { modelIdentifier: 'MacBookPro18,3', operatingSystemVersion: '26.1', managed: true, lastCheckInTime: daysAgo(1), enrollmentType: 'Institutional' },
-    { modelIdentifier: 'MacBookAir10,1', operatingSystemVersion: '26.0', managed: true, lastCheckInTime: daysAgo(2), enrollmentType: 'Institutional' },
-    { modelIdentifier: 'iPad13,4', operatingSystemVersion: '26.1', managed: true, lastCheckInTime: daysAgo(90), enrollmentType: 'Institutional' },
-    { modelIdentifier: 'iPhone15,2', operatingSystemVersion: null, managed: false, lastCheckInTime: null, enrollmentType: null },
+    { modelIdentifier: 'MacBookPro18,3', operatingSystemVersion: '26.1', managed: true, lastCheckInTime: daysAgo(1), lastInventoryUpdateTime: daysAgo(1), enrollmentType: 'Institutional' },
+    { modelIdentifier: 'MacBookAir10,1', operatingSystemVersion: '26.0', managed: true, lastCheckInTime: daysAgo(2), lastInventoryUpdateTime: daysAgo(2), enrollmentType: 'Institutional' },
+    // Mobile: no check-in, but recent inventory — must NOT count as stale or never-seen.
+    { modelIdentifier: 'iPad13,4', operatingSystemVersion: '26.1', managed: true, lastCheckInTime: null, lastContactTime: null, lastInventoryUpdateTime: daysAgo(3), enrollmentType: 'Institutional' },
+    { modelIdentifier: 'iPhone15,2', operatingSystemVersion: null, managed: false, lastCheckInTime: null, lastInventoryUpdateTime: null, enrollmentType: null },
   ];
 
   it('counts by platform, so a device total is never mistaken for a Mac total', () => {
@@ -72,30 +102,58 @@ describe('summarizeDevices', () => {
     ]);
   });
 
-  it('separates managed, unmanaged, stale and never-checked-in', () => {
+  it('separates managed, unmanaged, stale and never-seen', () => {
     const s = summarizeDevices(devices, NOW, 30);
     expect(s.managed).toBe(3);
     expect(s.unmanaged).toBe(1);
-    expect(s.staleCheckIn).toEqual({ thresholdDays: 30, count: 1, neverCheckedIn: 1 });
+    // Only the device with no timestamp at all is never-seen. Nothing is stale:
+    // the iPad reported inventory 3 days ago even though it has no check-in.
+    expect(s.staleness.stale).toBe(0);
+    expect(s.staleness.neverSeen).toBe(1);
+    expect(s.staleness.unreadable).toBe(0);
+  });
+
+  // The regression this whole shape exists to prevent: a check-in-only rule
+  // reported every mobile device as never having reported in.
+  it('does not call a mobile device stale merely for lacking a check-in time', () => {
+    const mobileOnly: DeviceRecord[] = [
+      { modelIdentifier: 'iPad15,7', lastCheckInTime: null, lastContactTime: null, lastInventoryUpdateTime: daysAgo(2) },
+      { modelIdentifier: 'iPad13,1', lastCheckInTime: null, lastContactTime: null, lastInventoryUpdateTime: daysAgo(4) },
+    ];
+    const s = summarizeDevices(mobileOnly, NOW, 30);
+    expect(s.staleness.stale).toBe(0);
+    expect(s.staleness.neverSeen).toBe(0);
+    expect(s.staleness.bySource).toEqual([{ key: 'lastInventoryUpdateTime', count: 2 }]);
+  });
+
+  it('reports which fields are populated, exposing the Mac-only check-in field', () => {
+    const s = summarizeDevices(devices, NOW);
+    expect(s.signalAvailability).toEqual([
+      { key: 'lastCheckInTime', count: 2 },
+      { key: 'lastContactTime', count: 0 },
+      { key: 'lastInventoryUpdateTime', count: 3 },
+    ]);
   });
 
   it('respects a custom stale threshold', () => {
-    expect(summarizeDevices(devices, NOW, 1).staleCheckIn.count).toBe(2);
-    expect(summarizeDevices(devices, NOW, 365).staleCheckIn.count).toBe(0);
+    expect(summarizeDevices(devices, NOW, 1).staleness.stale).toBe(2);
+    expect(summarizeDevices(devices, NOW, 365).staleness.stale).toBe(0);
   });
 
   // A garbage timestamp must not read as "recently seen".
-  it('treats an unparseable check-in time as stale, not healthy', () => {
+  it('counts an unreadable timestamp as stale, distinctly from never-seen', () => {
     const s = summarizeDevices([{ lastCheckInTime: 'not-a-date' }], NOW);
-    expect(s.staleCheckIn.count).toBe(1);
-    expect(s.staleCheckIn.neverCheckedIn).toBe(0);
+    expect(s.staleness.stale).toBe(1);
+    expect(s.staleness.unreadable).toBe(1);
+    expect(s.staleness.neverSeen).toBe(0);
   });
 
   it('handles an empty fleet without dividing by zero or throwing', () => {
     const s = summarizeDevices([], NOW);
     expect(s.total).toBe(0);
     expect(s.byPlatform).toEqual([]);
-    expect(s.staleCheckIn.count).toBe(0);
+    expect(s.staleness.stale).toBe(0);
+    expect(s.staleness.neverSeen).toBe(0);
   });
 
   // `managed` may be absent; absent is not the same as false.
