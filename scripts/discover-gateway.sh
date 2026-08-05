@@ -94,22 +94,25 @@ PROBES=(
   "devices|devices|devices|tenant"
   "device-groups|device-groups|device-groups|tenant"
 
-  # Docs name the operation "list tenant benchmarks" without publishing a path,
-  # so resource is as uncertain as the segment. Sweep both.
-  "compliance-benchmarks|compliance-benchmarks benchmarks compliance mscp|benchmarks tenant-benchmarks baselines|tenant flat"
+  # CONFIRMED: segment compliance-benchmarks, style flat (no tenant segment),
+  # 403 pending a compliance read scope on the integration.
+  "compliance-benchmarks|compliance-benchmarks|benchmarks|flat"
 
-  # Documented paths carry NO tenant segment, unlike every other group, and both
-  # require an ID — so a tenant-scoped list probe was guaranteed to 404. Try flat
-  # and a plain collection.
-  "declaration-reporting|declaration-reporting declarations declaration|declarations device-declarations|flat tenant"
+  # CONFIRMED: segment pro, style tenant. Unlocks the 300+ Jamf Pro API surface.
+  "jamf-pro|pro|account-groups|tenant"
 
-  # Jamf Pro API: 300+ endpoints. account-groups is v1 and the cheapest probe.
-  # Resolving the segment once makes the whole surface reachable via rawPath.
-  "jamf-pro|pro jamf-pro jamfpro jamf-pro-api|account-groups categories|tenant flat"
+  # Declaration Reporting publishes no collection endpoint — only
+  # /v1/devices/{deviceId}/declarations and
+  # /v1/declarations/{declarationIdentifier}/devices. Probing it as a list was
+  # always going to 404. {DEVICE} borrows an ID from the devices probe above.
+  # `pro` is now a known-good segment, so it is a candidate here too.
+  "declaration-reporting|declaration-reporting declarations pro devices|devices/{DEVICE}/declarations|flat tenant"
 
-  # Jamf Pro Classic: 500+ endpoints, /JSSResource/{resource}, no version.
-  # Only the raw style can express this.
-  "jamf-pro-classic|classic jamf-pro-classic pro jamf-pro|/JSSResource/categories /JSSResource/buildings|raw"
+  # Jamf Pro Classic: 500+ endpoints at /JSSResource/{resource}, no version.
+  # The first pass tried only the bare form. The docs also publish a
+  # tenant-scoped variant, /JSSResource/tenant/{tenantid}/{resource}, which was
+  # never probed — and `pro` is now confirmed valid, making it the best guess.
+  "jamf-pro-classic|pro classic jamf-pro-classic|/JSSResource/tenant/{TENANT}/buildings /JSSResource/buildings|raw"
 )
 
 # ── token, refreshed proactively (gateway tokens are ~900s) ──────────────────
@@ -135,6 +138,22 @@ auth_header() {
   local now; now="$(date +%s)"
   { [ -z "$TOKEN" ] || [ $(( now - TOKEN_AT )) -ge "$REFRESH_AFTER" ]; } && get_token
   printf 'Authorization: Bearer %s' "$TOKEN"
+}
+
+# Some paths embed a device ID rather than being collections — Declaration
+# Reporting publishes only /v1/devices/{deviceId}/declarations, with no list
+# endpoint, so probing it as a collection can only ever 404. Borrow an ID from
+# the devices probe, which runs earlier in the table.
+DEVICE_ID=""
+get_device_id() {
+  if [ -z "$DEVICE_ID" ]; then
+    if [ "${DRY_RUN:-}" = "1" ]; then
+      DEVICE_ID="{DEVICE}"
+    elif [ -f "$RAW_DIR/devices.json" ]; then
+      DEVICE_ID="$(jq -r '.results[0].id // empty' < "$RAW_DIR/devices.json" 2>/dev/null || true)"
+    fi
+  fi
+  printf '%s' "$DEVICE_ID"
 }
 
 # Replaces every scalar with its type name. Object keys survive (they are the
@@ -176,10 +195,26 @@ for probe in "${PROBES[@]}"; do
   for service in $services; do
    for resource in $resources; do
     for style in $styles; do
+    # Placeholder substitution lets the probe table express paths that embed
+    # identifiers — {TENANT} for the raw style (Classic has a documented
+    # /JSSResource/tenant/{tenantid}/... form) and {DEVICE} for ID-only paths.
+    probe_resource="$resource"
+    case "$probe_resource" in
+      *'{DEVICE}'*)
+        dev="$(get_device_id)"
+        if [ -z "$dev" ]; then
+          warn "${group}: skipping '${resource}' — no device id available"
+          continue
+        fi
+        probe_resource="${probe_resource//\{DEVICE\}/$dev}"
+        ;;
+    esac
+    probe_resource="${probe_resource//\{TENANT\}/$JAMF_TENANT_ID}"
+
     case "$style" in
-      tenant) url="${BASE}/api/${service}/v1/tenant/${JAMF_TENANT_ID}/${resource}" ;;
-      flat)   url="${BASE}/api/${service}/v1/${resource}" ;;
-      raw)    url="${BASE}/api/${service}${resource}" ;;
+      tenant) url="${BASE}/api/${service}/v1/tenant/${JAMF_TENANT_ID}/${probe_resource}" ;;
+      flat)   url="${BASE}/api/${service}/v1/${probe_resource}" ;;
+      raw)    url="${BASE}/api/${service}${probe_resource}" ;;
       *)      die "unknown style '$style' in probe table for ${group}" ;;
     esac
     attempts=$(( attempts + 1 ))
@@ -233,6 +268,10 @@ for probe in "${PROBES[@]}"; do
   # identifier — is masked out of it. The resolved segment is the useful part.
   report_path="${final_url#$BASE}"
   report_path="${report_path//$JAMF_TENANT_ID/\{TENANT\}}"
+  # A borrowed device ID is also a live identifier — mask it too.
+  if [ -n "$DEVICE_ID" ] && [ "$DEVICE_ID" != "{DEVICE}" ]; then
+    report_path="${report_path//$DEVICE_ID/\{DEVICE\}}"
+  fi
 
   if [ -z "$resolved" ]; then
     warn "${group}: unresolved after ${attempts} attempt(s)"

@@ -1,0 +1,18 @@
+{
+  "totalCount": "number",
+  "results": [
+    {
+      "id": "string",
+      "name": "string",
+      "accessLevel": "string",
+      "privilegeLevel": "string",
+      "siteId": "string",
+      "ldapServerId": "string",
+      "directoryGroupId": "null",
+      "members": [],
+      "privileges": [
+        "string"
+      ]
+    }
+  ]
+}

@@ -59,16 +59,28 @@ Diagnostic shorthand when a call fails:
 
 Resolved against a live tenant on 2026-08-04 (`fixtures/discovery-report.md`):
 
-| group | segment | status |
-|---|---|---|
-| Blueprints | `blueprints` | confirmed 200 |
-| Devices | `devices` | confirmed 200 |
-| Device Groups | `device-groups` | confirmed 200 |
-| Compliance Benchmarks | unresolved | 404 on all candidates |
-| Declaration Reporting | unresolved | 404 on all candidates |
+| group | segment | style | status |
+|---|---|---|---|
+| Blueprints | `blueprints` | `tenant` | confirmed 200 |
+| Devices | `devices` | `tenant` | confirmed 200 |
+| Device Groups | `device-groups` | `tenant` | confirmed 200 |
+| **Jamf Pro API** | **`pro`** | `tenant` | confirmed 200 |
+| Compliance Benchmarks | `compliance-benchmarks` | **`flat`** | 403 — path OK, scope missing |
+| Declaration Reporting | unresolved | — | no collection endpoint; needs a device ID |
+| Jamf Pro Classic | unresolved | — | 404 on bare `/JSSResource/...` |
 
-So far the segment equals the API group name in kebab-case — but that is three
-data points, not a rule. Confirm before relying on it.
+Two things this table exists to stop you assuming:
+
+**The segment is not always the group name.** Jamf Pro API is `pro`, not
+`jamf-pro`. Four of five resolved segments match the group name; one does not.
+
+**The style is not uniform.** Compliance Benchmarks is `flat` — no tenant
+segment — while everything else confirmed so far is `tenant`. Probe both before
+concluding a segment is wrong; the first discovery pass reported
+compliance-benchmarks as a 404 purely because it only tried `tenant`.
+
+`pro` + `tenant` makes the whole 300+ endpoint Jamf Pro API surface reachable
+through `platformRequest`, remembering that versions are per-resource.
 
 ### Pagination envelopes are not uniform
 
