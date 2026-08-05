@@ -22,6 +22,15 @@
  */
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Resolve against the repo, not the caller's cwd. `op run --env-file=.env.op`
+// already fails from outside the repo because that path is relative; this at
+// least makes the server path itself cwd-independent so the only thing that can
+// go wrong is the one the error message names.
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const SERVER = join(REPO_ROOT, 'dist', 'index.js');
 
 const [toolName, rawArgs] = process.argv.slice(2);
 
@@ -29,9 +38,16 @@ if (!toolName) {
   console.error('usage: node scripts/call-tool.mjs <toolName|tools/list> [\'{"json":"args"}\']');
   process.exit(2);
 }
-if (!existsSync('dist/index.js')) {
-  console.error('dist/index.js not found — run `npm run build` first.');
+if (!existsSync(SERVER)) {
+  console.error(`server not built at ${SERVER} — run \`npm run build\` first.`);
   process.exit(2);
+}
+if (!existsSync(join(REPO_ROOT, '.env.op'))) {
+  console.error(
+    `note: ${join(REPO_ROOT, '.env.op')} does not exist.\n` +
+      'If `op run --env-file=.env.op` reported "no such file or directory", run it from\n' +
+      `the repo root (${REPO_ROOT}) or pass the absolute path to --env-file.`,
+  );
 }
 
 let toolArgs = {};
@@ -44,7 +60,7 @@ if (rawArgs) {
   }
 }
 
-const server = spawn('node', ['dist/index.js'], {
+const server = spawn('node', [SERVER], {
   stdio: ['pipe', 'pipe', 'inherit'], // stderr passes through: that is where the server logs
   env: process.env,
 });
