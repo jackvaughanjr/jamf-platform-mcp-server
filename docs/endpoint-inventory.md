@@ -16,21 +16,26 @@ empirically; results land in `fixtures/discovery-report.md`.
 Legend: **R** = reachable with read-only scopes · **W** = write, blocked by a
 read-only integration.
 
-## Discovery results — all groups resolved (2026-08-04)
-
-Every group below has a confirmed path. `403` means the path is right and the
-integration lacks the scope; nothing here is an unresolved path.
+## Discovery results (2026-08-04)
 
 | group | segment | style | outcome |
 |---|---|---|---|
-| Blueprints | `blueprints` | `tenant` | **200** |
-| Devices | `devices` | `tenant` | **200** |
-| Device Groups | `device-groups` | `tenant` | **200** |
-| Jamf Pro API | `pro` | `tenant` | **200** |
-| Blueprint components | `blueprints` | `tenant` | 403 scope |
-| Compliance Benchmarks | `compliance-benchmarks` | `flat` | 403 scope |
-| Declaration Reporting | `pro` | `tenant` | 403 scope |
-| Jamf Pro Classic | `pro` | `raw` | 403 scope |
+| Blueprints | `blueprints` | `tenant` | **200 confirmed** |
+| Devices | `devices` | `tenant` | **200 confirmed** |
+| Device Groups | `device-groups` | `tenant` | **200 confirmed** |
+| Jamf Pro API | `pro` | `tenant` | **200 confirmed** |
+| Blueprint components | — | — | unresolved (403 BAD_PERMISSIONS = unknown route) |
+| Declaration Reporting | — | — | unresolved (403 BAD_PERMISSIONS = unknown route) |
+| Jamf Pro Classic | — | — | unresolved (403 BAD_PERMISSIONS = unknown route) |
+| Compliance Benchmarks | `compliance-benchmarks` | `flat` | route recognised, gateway refuses it |
+
+A previous revision of this table claimed all eight were resolved, reading 403 as
+"path correct, scope missing". Negative controls disproved that: a route that
+cannot exist returns 403 BAD_PERMISSIONS, while an unknown service returns 404.
+See CLAUDE.md for the full status semantics.
+
+The four confirmed 200s are unaffected. `pro` remains an umbrella segment for the
+Jamf Pro API, and remains the route to 300+ endpoints.
 
 **Eight groups, five segments.** `pro` is an umbrella serving the Jamf Pro API,
 the Classic API, and Declaration Reporting.

@@ -56,46 +56,68 @@ Diagnostic shorthand when a call fails:
 - **403** — the route exists but refuses this caller. **Cause unknown — do not
   read this as "missing scope."**
 
-That second point is a correction, not a caveat. An integration granted *every*
-available `read:pro:*` scope still receives 403 on blueprint components,
-Compliance Benchmarks, Declaration Reporting, and Classic buildings, while
-holding `read:pro:blueprints`, `read:pro:compliance-benchmarks`,
-`read:pro:declaration-reporting`, and `read:pro:buildings` respectively — and
-`blueprints` list returns **200** under that same `read:pro:blueprints`. Same
-scope, same service, one route works and one does not. So 403 encodes something
-other than permission.
+### What each status actually means — settled by negative control
 
-Leading hypotheses, untested:
+Two control probes, run 2026-08-04, decided this:
 
-1. The route is registered in the gateway but not enabled for this tenant or
-   this stage of the beta.
-2. The path is subtly wrong and the gateway answers unmatched-but-plausible
-   routes with 403 rather than 404.
-3. Classic and the newer groups need an authorisation grant beyond gateway
-   scopes — a Jamf Pro API role, or per-tenant enablement.
+```
+/api/devices/v1/tenant/{t}/zz-no-such-route-control   -> 403 BAD_PERMISSIONS
+/api/zz-no-such-service-control/v1/tenant/{t}/things  -> 404
+```
 
-`scripts/discover-gateway.sh` now saves every 4xx body to
-`fixtures/raw/errors/` (gitignored) and puts a scrubbed one-line message in the
-report. **Read those bodies before theorising** — three passes were spent
-inferring from bare status codes.
+A route that *cannot exist*, inside a service that demonstrably works, returns
+403 BAD_PERMISSIONS. So:
+
+- **404** — unknown *service* segment.
+- **403 `BAD_PERMISSIONS`** — unknown *route* inside a reachable service. This is
+  a wrong path, NOT a permission problem. Keep sweeping candidates.
+- **403 anything else** — the gateway recognises the route and refuses it, e.g.
+  `{"error":"Requested endpoint is forbidden"}`. A real signal about that path.
+- **400 `REQUEST_CONTEXT_NOT_PROVIDED`** — "Request context not provided in token
+  or headers." The tenant must be supplied via a header when it is not in the
+  path, so the `flat` style is incomplete: we have not found the header name yet.
+
+Tell the two 403s apart by their envelope. `BAD_PERMISSIONS` arrives in Jamf
+Pro's own error format (`httpStatus`, `traceId`, `errors[].code`), meaning the
+request was routed through to Jamf Pro. A bare `{"error":"…"}` is the gateway
+refusing before routing.
+
+Granting scopes does not change any of this: an integration holding *every*
+available `read:pro:*` scope — including `read:pro:blueprints`,
+`read:pro:compliance-benchmarks`, `read:pro:declaration-reporting`, and
+`read:pro:buildings` — still gets these 403s, while `blueprints` list returns 200
+under that same `read:pro:blueprints`.
+
+`scripts/discover-gateway.sh` saves every 4xx body to `fixtures/raw/errors/`
+(gitignored) and puts a scrubbed message in the report. **Read the bodies before
+theorising** — three passes were spent inferring from bare status codes, and the
+status code alone was actively misleading.
 
 ### Confirmed service segments
 
 Resolved against a live tenant on 2026-08-04 (`fixtures/discovery-report.md`):
 
-**All eight probed groups are resolved.** Every non-200 below is a missing scope
-on the integration, not a wrong path.
+**Four groups are confirmed. Four are not.** An earlier revision of this file
+claimed all eight were resolved; that was wrong, and the negative controls
+disproved it.
 
-| group | segment | style | path | status |
-|---|---|---|---|---|
-| Blueprints | `blueprints` | `tenant` | `/api/blueprints/v1/tenant/{t}/blueprints` | 200 |
-| Blueprint components | `blueprints` | `tenant` | `…/tenant/{t}/components` | 403 scope |
-| Devices | `devices` | `tenant` | `/api/devices/v1/tenant/{t}/devices` | 200 |
-| Device Groups | `device-groups` | `tenant` | `/api/device-groups/v1/tenant/{t}/device-groups` | 200 |
-| Compliance Benchmarks | `compliance-benchmarks` | `flat` | `/api/compliance-benchmarks/v1/benchmarks` | 403 scope |
-| Jamf Pro API | `pro` | `tenant` | `/api/pro/{v}/tenant/{t}/{resource}` | 200 |
-| Declaration Reporting | `pro` | `tenant` | `/api/pro/v1/tenant/{t}/devices/{id}/declarations` | 403 scope |
-| Jamf Pro Classic | `pro` | `raw` | `/api/pro/JSSResource/tenant/{t}/{resource}` | 403 scope |
+Confirmed working (200):
+
+| group | segment | style | path |
+|---|---|---|---|
+| Blueprints | `blueprints` | `tenant` | `/api/blueprints/v1/tenant/{t}/blueprints` |
+| Devices | `devices` | `tenant` | `/api/devices/v1/tenant/{t}/devices` |
+| Device Groups | `device-groups` | `tenant` | `/api/device-groups/v1/tenant/{t}/device-groups` |
+| Jamf Pro API | `pro` | `tenant` | `/api/pro/{v}/tenant/{t}/{resource}` |
+
+Not resolved — the path is wrong, not the permission:
+
+| group | last attempt | signal |
+|---|---|---|
+| Blueprint components | `/api/blueprints/v1/tenant/{t}/components` | 403 BAD_PERMISSIONS |
+| Declaration Reporting | `/api/pro/v1/tenant/{t}/devices/{id}/declarations` | 403 BAD_PERMISSIONS |
+| Jamf Pro Classic | `/api/pro/JSSResource/tenant/{t}/buildings` | 403 BAD_PERMISSIONS |
+| Compliance Benchmarks | `/api/compliance-benchmarks/v1/benchmarks` | 403 gateway-level refusal |
 
 ### Four findings that override the documentation
 

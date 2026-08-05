@@ -117,7 +117,10 @@ PROBES=(
   "_control-bogus-service|zz-no-such-service-control|things|tenant"
 
   "blueprints|blueprints|blueprints|tenant"
-  "blueprint-components|blueprints|components|tenant"
+
+  # `components` under blueprints is an unknown route (BAD_PERMISSIONS, same as
+  # the bogus-route control). Sweep plausible names and both styles.
+  "blueprint-components|blueprints|components blueprint-components available-components component-definitions|tenant flat"
   "devices|devices|devices|tenant"
   "device-groups|device-groups|device-groups|tenant"
 
@@ -128,18 +131,16 @@ PROBES=(
   # CONFIRMED: segment pro, style tenant. Unlocks the 300+ Jamf Pro API surface.
   "jamf-pro|pro|account-groups|tenant"
 
-  # Declaration Reporting publishes no collection endpoint — only
-  # /v1/devices/{deviceId}/declarations and
-  # /v1/declarations/{declarationIdentifier}/devices. Probing it as a list was
-  # always going to 404. {DEVICE} borrows an ID from the devices probe above.
-  # `pro` is now a known-good segment, so it is a candidate here too.
-  "declaration-reporting|declaration-reporting declarations pro devices|devices/{DEVICE}/declarations|flat tenant"
+  # `devices` is listed BEFORE `pro` deliberately: the previous run aborted the
+  # sweep on pro's BAD_PERMISSIONS and never reached devices, which is the
+  # segment the documented path /v1/devices/{deviceId}/declarations most
+  # resembles. No collection endpoint exists, so {DEVICE} borrows a real ID.
+  "declaration-reporting|devices pro declaration-reporting declarations|devices/{DEVICE}/declarations declarations|tenant flat"
 
-  # Jamf Pro Classic: 500+ endpoints at /JSSResource/{resource}, no version.
-  # The first pass tried only the bare form. The docs also publish a
-  # tenant-scoped variant, /JSSResource/tenant/{tenantid}/{resource}, which was
-  # never probed — and `pro` is now confirmed valid, making it the best guess.
-  "jamf-pro-classic|pro classic jamf-pro-classic|/JSSResource/tenant/{TENANT}/buildings /JSSResource/buildings|raw"
+  # Classic: 500+ endpoints, /JSSResource/{resource}, no version. The bare and
+  # tenant-scoped forms are both documented; the previous run only ever tried
+  # pro x tenant-scoped before aborting, so the rest is still unexplored.
+  "jamf-pro-classic|pro classic jamf-pro-classic jssresource|/JSSResource/buildings /JSSResource/tenant/{TENANT}/buildings /JSSResource/categories|raw"
 )
 
 # ── token, refreshed proactively (gateway tokens are ~900s) ──────────────────
@@ -292,14 +293,28 @@ for probe in "${PROBES[@]}"; do
         note_text="style \`${style}\`, envelope: \`${envelope}\`"
         rm -f "$body_file"; break 3 ;;
       403)
-        # Do NOT assume this means "missing scope". Verified 2026-08-04: an
-        # integration holding read:pro:blueprints, read:pro:compliance-benchmarks,
-        # read:pro:declaration-reporting and read:pro:buildings still gets 403 on
-        # all four of those routes, while blueprints/list returns 200 under the
-        # same scope. So 403 distinguishes something other than permission, and
-        # the response body is the only evidence — keep it.
-        resolved="$service"; resolved_style="$style"; final_status="$status"; final_url="$url"
         mkdir -p "$ERR_DIR"
+        # Two different 403s, established by the negative controls on 2026-08-04:
+        #
+        #   BAD_PERMISSIONS  -> the gateway has no such route inside a service you
+        #                       can reach. A route that cannot possibly exist
+        #                       (_control-bogus-route) returns exactly this, while
+        #                       a nonexistent SERVICE returns 404. So this is a
+        #                       path miss and the sweep must CONTINUE — treating
+        #                       it as a stop condition previously aborted the
+        #                       matrix and hid untried candidates.
+        #
+        #   anything else    -> a gateway-level refusal of a route it does
+        #                       recognise (e.g. {"error":"Requested endpoint is
+        #                       forbidden"}). That is a real signal about this
+        #                       path, so stop and record it.
+        if grep -q 'BAD_PERMISSIONS' "$body_file" 2>/dev/null; then
+          final_status="$status"; final_url="$url"
+          cp "$body_file" "$ERR_DIR/${group}.last-403-unknown-route.json" 2>/dev/null || true
+          rm -f "$body_file"
+          continue
+        fi
+        resolved="$service"; resolved_style="$style"; final_status="$status"; final_url="$url"
         cp "$body_file" "$ERR_DIR/${group}.json"
         err_msg="$(jq -r '[.errors[]?.description, .errors[]?.code, .message, .error, .error_description, .detail, .title]
                           | map(select(. != null)) | unique | join(" | ")' \
@@ -310,8 +325,8 @@ for probe in "${PROBES[@]}"; do
         err_msg="$(printf '%s' "$err_msg" \
           | sed -E 's/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/{ID}/g' \
           | sed 's/|/\\|/g')"
-        note_text="style \`${style}\`, 403 body: ${err_msg}"
-        warn "${group}: 403 via service='${service}' style='${style}' — ${err_msg}"
+        note_text="style \`${style}\`, gateway refused a route it recognises: ${err_msg}"
+        warn "${group}: 403 (gateway-level, not BAD_PERMISSIONS) via service='${service}' style='${style}' — ${err_msg}"
         rm -f "$body_file"; break 3 ;;
       401)
         rm -f "$body_file"

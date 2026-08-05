@@ -2,8 +2,18 @@
 
 Gateway: `https://us.apigw.jamf.com`
 
-Read-only integration. `403` means the path is correct and the scope is absent —
-that is a successful path resolution, not a failure.
+Read-only integration.
+
+`403` does NOT mean "path correct, scope missing". An integration granted every
+available `read:pro:*` scope still receives 403 on several routes, and
+`blueprints` list returns 200 under the same scope that 403s on
+`blueprints/components`. Treat a 403 row as UNCONFIRMED until the negative
+controls below say otherwise:
+
+- `_control-bogus-route` — a route that cannot exist, under a working service.
+  403 here means BAD_PERMISSIONS marks an unknown route, so every other 403 row
+  is a wrong path rather than a permission gap.
+- `_control-bogus-service` — a service that cannot exist. Expect 404.
 
 Tenant identifiers and result counts are deliberately absent: this file is
 committed and shared externally. The envelope column lists response *key names*,
@@ -11,6 +21,8 @@ which is the part that matters for writing a pagination helper.
 
 | group | resolved segment | status | url | notes |
 |---|---|---|---|---|
+| `_control-bogus-route` | `devices` | 403 | `/api/devices/v1/tenant/{TENANT}/zz-no-such-route-control` | style `tenant`, 403 body: BAD_PERMISSIONS \| The given token was not authorized to access the requested resource. |
+| `_control-bogus-service` | — | 404 | `/api/zz-no-such-service-control/v1/tenant/{TENANT}/things` | 1 combos tried; services: zz-no-such-service-control |
 | `blueprints` | `blueprints` | 200 | `/api/blueprints/v1/tenant/{TENANT}/blueprints` | style `tenant`, envelope: `totalCount` |
 | `blueprint-components` | `blueprints` | 403 | `/api/blueprints/v1/tenant/{TENANT}/components` | style `tenant`, 403 body: BAD_PERMISSIONS \| The given token was not authorized to access the requested resource. |
 | `devices` | `devices` | 200 | `/api/devices/v1/tenant/{TENANT}/devices` | style `tenant`, envelope: `page, pageSize, totalCount, totalPages, hasNext, hasPrevious` |
