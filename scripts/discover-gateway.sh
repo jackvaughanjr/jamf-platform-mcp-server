@@ -207,6 +207,50 @@ else
   note "gateway ${BASE}  tenant ${JAMF_TENANT_ID:0:8}…"
 fi
 
+# ── service segment enumeration ──────────────────────────────────────────────
+# The 403-vs-404 split makes service segments ENUMERABLE rather than guessable:
+# a route that cannot exist returns 403 BAD_PERMISSIONS under a real service, and
+# 404 under one the gateway does not host. So probing a deliberately bogus route
+# against each candidate name tells us which segments exist, without knowing a
+# single valid route inside them.
+SERVICE_CANDIDATES=(
+  blueprints devices device-groups pro compliance-benchmarks
+  declarations declaration-reporting device-management-actions device-actions
+  classic jamf-pro jamf-pro-classic jamf-pro-api jssresource
+  protect security-cloud benchmarks compliance mscp
+  users computers mobile-devices inventory patch policies
+)
+
+SERVICE_TABLE=""
+enumerate_services() {
+  local svc url status body_file exists
+  for svc in "${SERVICE_CANDIDATES[@]}"; do
+    url="${BASE}/api/${svc}/v1/tenant/${JAMF_TENANT_ID}/zz-service-probe"
+    body_file="$(mktemp)"
+    status="$(curl -sS -o "$body_file" -w '%{http_code}' \
+      -H "$(auth_header)" -H 'Accept: application/json' "$url" || echo "000")"
+    if [ "$status" = "403" ] && grep -q 'BAD_PERMISSIONS' "$body_file" 2>/dev/null; then
+      exists="yes"
+    elif [ "$status" = "404" ]; then
+      exists="no"
+    else
+      # Anything else is ambiguous — record the status so it can be read directly
+      # rather than folded into a yes/no it does not support.
+      exists="? ($status)"
+    fi
+    printf '  %-26s %s\n' "$svc" "$exists" >&2
+    SERVICE_TABLE="${SERVICE_TABLE}| \`${svc}\` | ${exists} |"$'\n'
+    rm -f "$body_file"
+  done
+}
+
+if [ "${DRY_RUN:-}" = "1" ]; then
+  note "DRY RUN — would enumerate ${#SERVICE_CANDIDATES[@]} service candidates"
+else
+  note "enumerating ${#SERVICE_CANDIDATES[@]} candidate service segments…"
+  enumerate_services
+fi
+
 {
   printf '# Gateway discovery report\n\n'
   printf 'Gateway: `%s`\n\n' "$BASE"
@@ -226,6 +270,15 @@ fi
   printf 'Tenant identifiers and result counts are deliberately absent: this file is\n'
   printf 'committed and shared externally. The envelope column lists response *key names*,\n'
   printf 'which is the part that matters for writing a pagination helper.\n\n'
+  if [ -n "$SERVICE_TABLE" ]; then
+    printf '## Service segments the gateway hosts\n\n'
+    printf 'Determined by probing a route that cannot exist against each candidate:\n'
+    printf '403 BAD_PERMISSIONS means the segment is real, 404 means it is not.\n\n'
+    printf '| candidate | hosted |\n|---|---|\n'
+    printf '%s' "$SERVICE_TABLE"
+    printf '\n'
+  fi
+  printf '## Routes\n\n'
   printf '| group | resolved segment | status | url | notes |\n'
   printf '|---|---|---|---|---|\n'
 } > "$REPORT"

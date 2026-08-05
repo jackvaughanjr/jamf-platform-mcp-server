@@ -1,0 +1,39 @@
+{
+  "results": [
+    {
+      "identifier": "string",
+      "name": "string",
+      "description": "string",
+      "meta": {
+        "supportedOs": {
+          "tvOS": [
+            {
+              "version": "string"
+            }
+          ],
+          "iOS": [
+            {
+              "version": "string"
+            }
+          ],
+          "macOS": [
+            {
+              "version": "string"
+            }
+          ],
+          "visionOS": [
+            {
+              "version": "string"
+            }
+          ],
+          "iPadOS": [
+            {
+              "version": "string"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "totalCount": "number"
+}

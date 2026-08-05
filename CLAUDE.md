@@ -106,9 +106,16 @@ Confirmed working (200):
 | group | segment | style | path |
 |---|---|---|---|
 | Blueprints | `blueprints` | `tenant` | `/api/blueprints/v1/tenant/{t}/blueprints` |
+| Blueprint components | `blueprints` | `tenant` | `/api/blueprints/v1/tenant/{t}/blueprint-components` |
 | Devices | `devices` | `tenant` | `/api/devices/v1/tenant/{t}/devices` |
 | Device Groups | `device-groups` | `tenant` | `/api/device-groups/v1/tenant/{t}/device-groups` |
 | Jamf Pro API | `pro` | `tenant` | `/api/pro/{v}/tenant/{t}/{resource}` |
+
+**Resource names are fully qualified, not relative.** Blueprint components is
+`blueprint-components`, not `components`, even though it sits under the
+`blueprints` service. Do not assume a sub-resource drops its domain prefix — that
+assumption produced three passes of 403s. Its records are also keyed
+`identifier`, not `id`, and carry `meta.supportedOs.{macOS,iOS,tvOS}[].version`.
 
 Not resolved — the path is wrong, not the permission:
 
