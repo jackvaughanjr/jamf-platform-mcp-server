@@ -130,6 +130,20 @@ is sufficient and strongly preferred. The client secret is shown exactly once.
 | `JAMF_TOKEN_URL` | no | defaults to `<base>/auth/token` |
 | `JAMF_READ_ONLY` | no | defaults to `true`; a backstop, **not** the guarantee |
 
+### Write posture
+
+A read-only integration (above) is this project's supported configuration, not a
+starter mode to graduate from
+([JPM-0007](decisions/JPM-0007-write-path-posture.md)). Scopes that can erase or
+unmanage a device are never granted to this server — not gated, not granted, in
+any configuration. That work belongs in Jamf Pro's own interface, where it is
+attributed to a named person and lands in Jamf's audit log.
+
+`JAMF_READ_ONLY` above is a backstop, not the guarantee: it is on unless the value
+is the literal string `false`, so a typo fails closed. The real boundary is what
+the credential's scopes permit, which Jamf enforces — not this code. A fork that
+grants write scopes is making that decision, and owns what follows from it.
+
 Credentials are injected at runtime so the secret never lands on disk:
 
 ```bash

@@ -1,0 +1,12 @@
+# Every path defaults to the sole maintainer. This exists for branch protection,
+# not process for its own sake: GitHub's "require review from Code Owners" setting
+# only has an owner to check against because this file exists, and that setting is
+# what turns a PR's review requirement from optional to mechanical.
+#
+# It also activates a CI step that has never run. .github/workflows/ci.yml's "ADRs
+# unchanged" job is guarded by `if: github.event_name == 'pull_request'` — with a
+# single maintainer committing straight to main, every push to date has skipped it.
+# Branch protection that forces changes through a PR is what gives that guard a
+# pull_request event to run against.
+
+*   @jackvaughanjr

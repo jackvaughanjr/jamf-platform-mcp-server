@@ -20,6 +20,14 @@ run anything against a live tenant. **A read-only integration is sufficient and
 strongly preferred** — the gateway's scopes are the safety boundary, not this code
 ([JPM-0001](decisions/JPM-0001-target-platform-api-gateway.md)).
 
+**Adding a write tool is not an ordinary contribution.** JPM-0007 decided that no
+read-write integration is provisioned and none is planned — read-only is this
+project's supported configuration, not a phase to graduate from. Reversing that
+decision needs a superseding ADR, the same as correcting any other committed
+decision; a PR that adds a write-capable tool without one is changing what this
+project decided against
+([JPM-0007](decisions/JPM-0007-write-path-posture.md)).
+
 ```bash
 scripts/jamf tools/list          # works from any directory
 scripts/jamf getFleetOverview
