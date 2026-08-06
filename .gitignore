@@ -28,3 +28,9 @@ fixtures/raw/
 .DS_Store
 *.tsbuildinfo
 .claude/settings.local.json
+
+# Agent worktrees. These are git worktrees of this repo, so `git add -A` from the
+# root stages them as embedded repositories (gitlinks) rather than as files — which
+# lands a commit SHA pointing at a directory no clone can resolve. Caught exactly
+# that way once.
+.claude/worktrees/
