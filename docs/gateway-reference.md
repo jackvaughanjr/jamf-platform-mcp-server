@@ -172,7 +172,20 @@ Envelopes are not uniform, so a generic helper must not assume `hasNext` exists:
 | `devices`, `device-groups` | `page`, `pageSize`, `totalCount`, `totalPages`, `hasNext`, `hasPrevious` |
 | `blueprints`, `blueprint-components`, `pro` | `results` + `totalCount` only |
 
-`page` is **0-based**. Query parameters are `page` and `page-size`.
+`page` is **0-based**. Query parameters are `page` and `page-size` — **for most
+segments, not all.** Two deviate, and both deviate *silently*:
+
+| segment | size parameter | on being paged the common way |
+|---|---|---|
+| most (`devices`, `device-groups`, `blueprints`, `blueprint-components`, `pro`) | `page-size` | correct |
+| `ddm/report` | **`size`** | ignores `page-size`, applies its default of 20, returns a valid-looking first page |
+| `proclassic` | none — no paging envelope at all | no `results[]`, so a pager reads "no items", stops, and reports an empty list with no error |
+
+Neither returns an error, which is why this is enforced in code rather than left to
+a caller's memory: `inferPagingFamily` in `src/platform-client.ts` derives the family
+from the service segment, `requestAll` refuses `proclassic` outright and names
+`extractClassicList` as the alternative, and a page it cannot read throws rather than
+reporting nothing found.
 
 ## `flat` style does not work
 
