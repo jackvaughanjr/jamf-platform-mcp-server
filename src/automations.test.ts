@@ -584,6 +584,11 @@ describe('summarizeGroupCriteria', () => {
     ]);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]?.issue).toContain('lowercase-only character class');
+    // Phrased as something to verify, not as settled behaviour: a live tenant's member
+    // counts implied case-SENSITIVE matching, contradicting the MySQL-default reasoning
+    // this warning was originally written from.
+    expect(warnings[0]?.issue).toContain('verify whether');
+    expect(warnings[0]?.why).toContain('NOT settled');
   });
 
   it('stays silent on a regex that is anchored and case-explicit', () => {

@@ -25,9 +25,9 @@ for a search term that could never have matched.
   envelope — a full roster of names, serials and MAC addresses to answer a two-line question.
   Flags criteria that will not do what they appear to: an **unanchored `matches regex`** tests
   whether a value CONTAINS a match rather than equals one, which silently turns "has failures"
-  into "is not blank", and a **lowercase-only character class** still matches uppercase because
-  Jamf Pro's MySQL collation is case-insensitive. Both were found in a live tenant, where
-  together they let a sentinel value satisfy a group meant to exclude it. A static group says
+  into "is not blank". A **lowercase-only character class** is flagged as something to verify
+  rather than as a defect: whether Jamf matches it case-insensitively is unsettled, and on one
+  tenant the member counts implied case-sensitive matching. A static group says
   so rather than returning an empty criteria list, which would read as a smart group with no
   rules.
 - **`findObjectReferences`** — what references a package, computer group or script,

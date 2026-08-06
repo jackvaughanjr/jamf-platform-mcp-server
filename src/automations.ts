@@ -683,9 +683,9 @@ export function summarizeGroupCriteria(criteria: JamfCriterion[] | null | undefi
           field,
           issue: 'unanchored regex — this matches any value CONTAINING a match, not the whole value',
           why:
-            'A criterion meant as "has failures" becomes "is not blank": placeholder values such ' +
-            'as "Not in scope" or "No Baseline Set" satisfy it, and so does anything else with a ' +
-            'qualifying token. Anchor with ^ and $ if the whole value was meant to be tested.',
+            'A criterion meant as "has failures" weakens toward "is not blank": a value merely ' +
+            'containing a qualifying token satisfies it, so a placeholder like "Not in scope" ' +
+            'counts as a failure. Anchor with ^ and $ if the whole value was meant to be tested.',
         });
       }
       // Plain string tests, not a regex about a regex — the first attempt at this
@@ -696,11 +696,14 @@ export function summarizeGroupCriteria(criteria: JamfCriterion[] | null | undefi
         warnings.push({
           order: index,
           field,
-          issue: 'lowercase-only character class, but Jamf Pro matches case-insensitively by default',
+          issue: 'lowercase-only character class — verify whether matching here is case-sensitive',
           why:
-            "MySQL's default collation is case-insensitive, so an uppercase value like EMPTY can " +
-            'match a class written as [a-z0-9_-]. A group meant to exclude a sentinel value may ' +
-            'include it, putting a device in both the compliant and non-compliant group at once.',
+            'If Jamf evaluates this case-insensitively, as a default MySQL collation would, an ' +
+            'uppercase sentinel such as EMPTY matches a class written [a-z0-9_-] and lands a ' +
+            'device in a group meant to exclude it. Whether that happens is NOT settled: on one ' +
+            'tenant the member counts implied case-SENSITIVE matching, since devices holding ' +
+            'EMPTY stayed out of the group. Treat this as worth checking against your own ' +
+            'membership counts, not as a defect.',
         });
       }
     }
