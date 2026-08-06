@@ -30,6 +30,35 @@ has ever worked.
 | Jamf Pro API | `pro` | tenant | *(300+ resources)* | confirmed with `account-groups`, `buildings` |
 | **Jamf Pro Classic** | **`proclassic`** | **raw** | `/tenant/{t}/{resource}` | no version; `{"activation_code":{…}}`-style named-key envelope |
 | **Declaration Reporting** | **`ddm/report`** | tenant | `devices/{id}/channels` | envelope: `deviceId`, `channels` |
+| **Declaration Reporting** | **`ddm/report`** | tenant | `devices/{id}/declarations` | **confirmed 2026-08-06**; envelope: `deviceId`, `totalCount`, `results[]`. Requires `filter` |
+
+### Declaration Reporting, confirmed live 2026-08-06
+
+`devices/{id}/declarations` had been documented-but-uncalled until now — the discovery
+script stops at its first 200 per group, so `channels` resolving meant this one was
+never tried. It returns 200.
+
+- **`filter` is mandatory**, and `filter=declarationIdentifier==*` works as a
+  match-all. That spelling is not published anywhere; it was inferred from the docs'
+  note that wildcards on `declarationIdentifier` are supported, then confirmed.
+- **Filters exclude `PENDING`.** Jamf applies filters only to declarations already on
+  the device, and since a filter is required, **PENDING is unreachable through this
+  route entirely.** A rollout in progress reads as having reached fewer devices than it
+  has, so an empty `failed` list never means "fully deployed".
+- Observed on one Mac: 9 declarations, all `status: SUCCESSFUL`, `type` split evenly
+  3/3/3 across `CONFIGURATION`, `MANAGEMENT` and `ACTIVATION` — the DDM triad, where a
+  configuration is accompanied by an activation and a management declaration. So a
+  device's declaration count is roughly 3× the number of things actually configured;
+  do not read `total` as "9 settings applied".
+- Only `channel: SYSTEM` was observed, matching `channels: ["SYSTEM"]` from the sibling
+  route. A user-channel device would presumably differ; unverified.
+- **`active: false` co-occurs with `status: SUCCESSFUL`** — 3 of the 9. So `active` is
+  not a health signal and must not be summed into a failure count. What distinguishes
+  an inactive-but-successful declaration is not yet understood.
+- **Multi-page traversal remains unverified.** `totalCount` was 9 against a default
+  `size` of 20, so exactly one page was fetched. The `size` parameter reached the
+  gateway and was accepted, but nothing has yet proved page 2 behaves — that needs a
+  device with more than 20 declarations.
 
 **Compliance Benchmarks:** path is correct —
 `/api/compliance-benchmarks/v1/tenant/{t}/benchmarks`, as documented — but returns

@@ -31,9 +31,16 @@ for a search term that could never have matched.
   Two caveats are reported in the response rather than left in a doc: Jamf **requires**
   a filter and applies filters only to declarations already on the device, so
   **PENDING declarations are invisible** and a quiet result does not mean deployment
-  finished; and the `declarations` route, while published with a matching path shape,
-  had never been called live when this shipped — the discovery script stops at its
-  first 200 — so the two legs settle independently and a failure names itself.
+  finished; and the two legs settle independently so an unproven route cannot take
+  down an answer the other can give.
+  **Verified against a live tenant on 2026-08-06**, which also confirmed the
+  `devices/{id}/declarations` route itself — documented but never called until now,
+  since the discovery script stops at its first 200 per group. The match-all filter
+  `declarationIdentifier==*` is not published anywhere and was inferred, then
+  confirmed. Findings recorded in `docs/gateway-reference.md`, including that
+  `active: false` co-occurs with `status: SUCCESSFUL` (so `active` is not a health
+  signal) and that multi-page traversal is still unproven — the test device had 9
+  declarations against a default page size of 20.
 - **`requestAll` pages each segment by its own family.** `inferPagingFamily` derives
   the family from the service segment, with an explicit `pagingFamily` override.
   Inference is the default because both deviations are silent, so an opt-in parameter
