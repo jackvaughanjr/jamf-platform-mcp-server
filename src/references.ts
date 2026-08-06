@@ -281,7 +281,14 @@ export type SourceKind =
   | 'eBook'
   | 'restrictedSoftware'
   | 'advancedComputerSearch'
-  | 'appInstaller';
+  | 'appInstaller'
+  // A script can be invoked from inside another script, or from an extension
+  // attribute's script. Both are real references that no policy scope records, and
+  // both are readable — findExpensiveAutomations already pulls script_contents and
+  // input_type.script. They are source kinds so that a script target can never reach
+  // 'clear' while they are unchecked.
+  | 'scriptBody'
+  | 'computerExtensionAttributeScript';
 
 /**
  * Which source kinds can reference which target kind.
@@ -304,7 +311,7 @@ export const REFERENCE_MATRIX: Readonly<Record<ReferenceTargetKind, readonly Sou
     'advancedComputerSearch',
     'appInstaller',
   ],
-  script: ['policy'],
+  script: ['policy', 'scriptBody', 'computerExtensionAttributeScript'],
 };
 
 /**
@@ -452,10 +459,14 @@ export interface ReferenceSources {
   restrictedSoftware?: SourceCollection;
   advancedComputerSearches?: SourceCollection;
   appInstallers?: SourceCollection;
+  scriptBodies?: SourceCollection;
+  computerExtensionAttributeScripts?: SourceCollection;
 }
 
 const SOURCE_INPUT_KEY: Readonly<Record<SourceKind, keyof ReferenceSources>> = {
   policy: 'policies',
+  scriptBody: 'scriptBodies',
+  computerExtensionAttributeScript: 'computerExtensionAttributeScripts',
   patchPolicy: 'patchPolicies',
   computerPrestage: 'computerPrestages',
   blueprint: 'blueprints',
@@ -472,6 +483,15 @@ const UNCHECKED_CONSEQUENCE: Readonly<Record<SourceKind, string>> = {
   policy:
     'a policy that scopes to, installs or runs this object. The most common kind of ' +
     'reference and the most consequential to miss.',
+  scriptBody:
+    'another script that invokes this one from its own body. No policy scope records ' +
+    'that relationship, so a script called only by a wrapper looks entirely unused. ' +
+    'Detecting it means substring-searching script contents, which this module refuses ' +
+    'to do for names — so it is declared unchecked rather than guessed at badly.',
+  computerExtensionAttributeScript:
+    "an extension attribute whose script invokes this one. Those run at every inventory " +
+    'collection, so breaking one silently corrupts an inventory field rather than ' +
+    'failing a policy that someone would notice.',
   patchPolicy:
     'a patch policy distributing this package. Patch policies are managed separately ' +
     'from ordinary policies, so a package can look unused while patching depends on it.',

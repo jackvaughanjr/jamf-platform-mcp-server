@@ -48,7 +48,11 @@ describe('REFERENCE_MATRIX', () => {
   // validated version silently shrinks what "clear" means.
   it('keeps Prune\'s validated usage matrix', () => {
     expect(REFERENCE_MATRIX.package).toEqual(['policy', 'patchPolicy', 'computerPrestage']);
-    expect(REFERENCE_MATRIX.script).toEqual(['policy']);
+    // Prune checks scripts against policies only. That is a hole rather than a
+    // specification: a script invoked from another script's body, or from an extension
+    // attribute's script, is a real reference no policy scope records. Both are listed
+    // so a script target can never reach 'clear' while they go unchecked.
+    expect(REFERENCE_MATRIX.script).toEqual(['policy', 'scriptBody', 'computerExtensionAttributeScript']);
     expect([...REFERENCE_MATRIX.computerGroup].sort()).toEqual([
       'advancedComputerSearch',
       'appInstaller',
@@ -334,14 +338,28 @@ describe('findObjectReferences — shapes and refusals', () => {
   });
 
   it('only consults the source kinds the matrix allows for the target', () => {
-    // A script is referenced by policies only, so a group-shaped source must be
-    // neither checked nor reported as a gap.
+    // A group-shaped source is not in the script matrix, so it must be neither checked
+    // nor reported as a gap. The script matrix's own kinds still are.
     const report = findObjectReferences(
       { kind: 'script', id: 5 },
       { policies: [policy({ scripts: [{ id: 5 }] })], computerGroups: [groupWithMembership('X', 1, GROUP)] },
     );
     expect(report.checked.map((c) => c.sourceKind)).toEqual(['policy']);
-    expect(report.notChecked).toEqual([]);
+    expect(report.notChecked.map((n) => n.sourceKind)).not.toContain('computerGroup');
+  });
+
+  // The tool's whole purpose is that it cannot claim a false all-clear. A script with
+  // no policy reference was reaching 'clear' while two knowable reference routes —
+  // other scripts' bodies and extension attribute scripts — had never been looked at.
+  it('cannot call a script clear while script-body references go unchecked', () => {
+    const report = findObjectReferences({ kind: 'script', id: 5 }, { policies: [policy({})] });
+    expect(report.references).toEqual([]);
+    expect(report.strength).not.toBe('clear');
+    expect(report.strength).toBe('partial-clear');
+    expect(report.notChecked.map((n) => n.sourceKind)).toEqual([
+      'scriptBody',
+      'computerExtensionAttributeScript',
+    ]);
   });
 
   it('reads a group reference out of an advanced search criterion', () => {

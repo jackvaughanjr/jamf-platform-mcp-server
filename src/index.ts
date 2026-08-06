@@ -1308,6 +1308,25 @@ server.registerTool(
           appInstallers: unverified('app-installers'),
           computerPrestages: unverified('Jamf Pro API computer-prestages'),
           blueprints: unverified("blueprints group-scope container shape"),
+          // Both are readable — findExpensiveAutomations already pulls script_contents
+          // and input_type.script — but finding a script invoked from another script's
+          // body means substring-searching contents, which produces false positives on
+          // any common word. Declared unchecked so a script target cannot reach
+          // 'clear', rather than answered with a bad heuristic.
+          scriptBodies: {
+            unavailable: true as const,
+            reason:
+              'not checked: detecting a script invoked from inside another script means ' +
+              'substring-searching script contents, which this module refuses to do for names. ' +
+              'Scan script bodies with findExpensiveAutomations if a script reports no policy ' +
+              'reference but you suspect a wrapper calls it.',
+          },
+          computerExtensionAttributeScripts: {
+            unavailable: true as const,
+            reason:
+              'not checked: extension attribute scripts are readable (input_type.script) but ' +
+              'are not yet scanned for invocations of another script.',
+          },
         },
       );
 

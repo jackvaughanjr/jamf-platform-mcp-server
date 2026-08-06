@@ -96,6 +96,17 @@ for a search term that could never have matched.
 
 ### Fixed
 
+- **`findObjectReferences` could call a script "clear" without checking two knowable
+  reference routes.** Prune's matrix checks scripts against policies only, and with
+  policies supplied `notChecked` was empty, so `strength` reached `'clear'`. But a
+  script invoked from **another script's body**, or from a **computer extension
+  attribute's script**, is a real reference that no policy scope records — and both are
+  readable, since `findExpensiveAutomations` already pulls `script_contents` and
+  `input_type.script`. Prune's matrix is a hole there, not a specification. Both are now
+  source kinds, declared unchecked with their consequence, so a script target caps at
+  `partial-clear` until they are actually scanned. Detecting a body-level invocation
+  means substring-searching contents, which this module refuses to do for names, so it
+  is left honest rather than answered with a heuristic.
 - **`getDeclarationScope`'s default filter matched nothing.** It defaulted to
   `deviceId==*`, which returned **200 with an empty result** for a declaration a device
   was simultaneously confirmed to be reporting as `SUCCESSFUL`. Jamf documents wildcard
