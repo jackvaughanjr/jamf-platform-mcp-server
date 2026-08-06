@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import {
   assessInventoryCollection,
+  BOUNDED_FIND_MAX_DEPTH,
   classifyPolicyCadence,
+  expandInventoryQuery,
   extractClassicDetail,
   extractClassicList,
   findCriterionMatches,
   findDisplayFieldMatches,
+  INVENTORY_SETTING_CRITERION_ALIASES,
   mapWithConcurrency,
   scanForExpensiveCommands,
 } from './automations.js';
@@ -56,6 +59,38 @@ describe('scanForExpensiveCommands', () => {
     expect(scanForExpensiveCommands(null)).toEqual([]);
     expect(scanForExpensiveCommands(undefined)).toEqual([]);
     expect(scanForExpensiveCommands('')).toEqual([]);
+  });
+
+  // A bounded walk is cheap, and flagging it is how an audit tool trains people to
+  // dismiss its output.
+  it('does not flag a shallow bounded walk from /', () => {
+    expect(scanForExpensiveCommands('find / -maxdepth 1 -name foo')).toEqual([]);
+    expect(scanForExpensiveCommands('find / -maxdepth 1 -name foo | head -1')).toEqual([]);
+  });
+
+  it('still flags an unbounded walk, and a nominally bounded but deep one', () => {
+    expect(scanForExpensiveCommands('find / -name "*.log"')).toHaveLength(1);
+    expect(scanForExpensiveCommands('find / -maxdepth 6 -name "*.log"')).toHaveLength(1);
+    // The digit is compared as a whole number, not a leading character.
+    expect(scanForExpensiveCommands('find / -maxdepth 12 -name "*.log"')).toHaveLength(1);
+  });
+
+  it('draws the bounded/unbounded line at the exported depth threshold', () => {
+    expect(scanForExpensiveCommands(`find / -maxdepth ${BOUNDED_FIND_MAX_DEPTH} -type f`)).toEqual([]);
+    expect(scanForExpensiveCommands(`find / -maxdepth ${BOUNDED_FIND_MAX_DEPTH + 1} -type f`)).toHaveLength(1);
+  });
+
+  // The (?!\S*\bnull\b) lookahead is deliberate; a redirect must not be read as a
+  // walk, but a redirect also must not excuse the walk in front of it.
+  it('keeps the /dev/null exclusion without excusing a real walk', () => {
+    expect(scanForExpensiveCommands('find /dev/null -name x')).toEqual([]);
+    expect(scanForExpensiveCommands('find / -type f 2> /dev/null')).toHaveLength(1);
+  });
+
+  it('does not let one command’s depth bound excuse another on the same line', () => {
+    const matches = scanForExpensiveCommands('find / -type f; find /Users -maxdepth 1 -name x');
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.label).toBe('find /');
   });
 
   it('accepts custom patterns', () => {
@@ -220,6 +255,77 @@ describe('assessInventoryCollection', () => {
     expect(a.enabledHighCost).toEqual([]);
     expect(a.findings.every((f) => f.enabled === false)).toBe(true);
   });
+
+  // The live-tenant case: 3 custom application search paths, still rated low, with a
+  // `why` that named the very thing it was ignoring.
+  it('escalates application collection above low when custom search paths exist, and states the count', () => {
+    const a = assessInventoryCollection({ include_applications: true, applications: [{}, {}, {}] });
+    const finding = a.findings.find((f) => f.setting.includes('include_applications'));
+    expect(finding?.cost).not.toBe('low');
+    expect(finding?.cost).toBe('high');
+    expect(finding?.why).toContain('3 custom application search paths');
+    expect(a.escalatedForCustomSearchPaths).toEqual([
+      {
+        setting: 'inclue_applications / include_applications',
+        category: 'applications',
+        customSearchPaths: 3,
+        from: 'low',
+        to: 'high',
+        enabled: true,
+      },
+    ]);
+  });
+
+  it('leaves application collection at low when it uses only the default path', () => {
+    const a = assessInventoryCollection({ include_applications: true, applications: [] });
+    expect(a.findings.find((f) => f.setting.includes('include_applications'))?.cost).toBe('low');
+    expect(a.escalatedForCustomSearchPaths).toEqual([]);
+    expect(a.enabledHighCost).toEqual([]);
+  });
+
+  it('applies the same reasoning to fonts and plugins', () => {
+    const a = assessInventoryCollection({
+      include_fonts: true,
+      include_plugins: true,
+      fonts: [{}],
+      plugins: [{}, {}],
+    });
+    expect(a.findings.find((f) => f.setting.includes('include_fonts'))?.cost).toBe('high');
+    expect(a.findings.find((f) => f.setting.includes('include_fonts'))?.why).toContain(
+      '1 custom font search path ',
+    );
+    expect(a.findings.find((f) => f.setting.includes('include_plugins'))?.why).toContain(
+      '2 custom plug-in search paths',
+    );
+    expect(a.escalatedForCustomSearchPaths.map((e) => e.category)).toEqual(['fonts', 'plugins']);
+  });
+
+  // The escalation has to work through Jamf's misspelling too, or the tenant that
+  // still returns `inclue_*` gets the old under-rating.
+  it('escalates through the misspelled key as well', () => {
+    const a = assessInventoryCollection({ inclue_applications: true, applications: [{}, {}] });
+    expect(a.enabledHighCost).toContain('inclue_applications / include_applications');
+  });
+
+  // The summary must not contradict the findings list in either direction: an
+  // escalated finding is high cost, but only an ENABLED one is high cost *now*.
+  it('keeps an escalated but disabled option out of enabledHighCost', () => {
+    const a = assessInventoryCollection({ include_applications: false, applications: [{}] });
+    expect(a.findings.find((f) => f.setting.includes('include_applications'))?.cost).toBe('high');
+    expect(a.enabledHighCost).toEqual([]);
+    expect(a.escalatedForCustomSearchPaths[0]?.enabled).toBe(false);
+  });
+
+  it('reports every enabled high-cost finding in enabledHighCost', () => {
+    const a = assessInventoryCollection({
+      home_directory_sizes: true,
+      include_applications: true,
+      applications: [{}, {}, {}],
+    });
+    const highAndEnabled = a.findings.filter((f) => f.enabled && f.cost === 'high').map((f) => f.setting);
+    expect(a.enabledHighCost).toEqual(highAndEnabled);
+    expect(a.enabledHighCost).toHaveLength(2);
+  });
 });
 
 describe('findCriterionMatches', () => {
@@ -278,5 +384,90 @@ describe('findDisplayFieldMatches', () => {
     expect(findDisplayFieldMatches([{ name: 'x' }], '')).toEqual([]);
     expect(findDisplayFieldMatches(undefined, 'home')).toEqual([]);
     expect(findDisplayFieldMatches([{}], 'home')).toEqual([]);
+  });
+});
+
+describe('expandInventoryQuery', () => {
+  // The bug this exists for: `package_receipts` is the setting key, but criteria
+  // query the data as "Packages Installed" / "Cached Packages" — no substring
+  // overlap, so searching the key alone returns zero whether or not consumers exist.
+  it('adds the criterion names Jamf actually exposes for a setting key', () => {
+    const e = expandInventoryQuery('package_receipts');
+    expect(e.matchedSettingKey).toBe('package_receipts');
+    expect(e.terms).toEqual(['package_receipts', 'Packages Installed', 'Cached Packages']);
+    // Searching the key alone would have found nothing.
+    expect(findCriterionMatches([{ name: 'Packages Installed', value: 'Widget' }], e.query)).toEqual([]);
+    expect(
+      e.terms.flatMap((t) => findCriterionMatches([{ name: 'Packages Installed', value: 'Widget' }], t)),
+    ).toHaveLength(1);
+  });
+
+  it('keeps the query itself first, and normalises spacing and case to find the key', () => {
+    for (const q of ['Package Receipts', 'package-receipts', '  PACKAGE_RECEIPTS  ']) {
+      const e = expandInventoryQuery(q);
+      expect(e.terms[0], q).toBe(q.trim());
+      expect(e.terms, q).toContain('Cached Packages');
+    }
+  });
+
+  it('returns only the query for free text that is not a setting key', () => {
+    const e = expandInventoryQuery('Home Directory');
+    expect(e.terms).toEqual(['Home Directory']);
+    expect(e.aliases).toEqual([]);
+    expect(e.matchedSettingKey).toBeUndefined();
+    expect(e.hasUnconfirmedAliases).toBe(false);
+  });
+
+  it('expands the misspelled Jamf keys the same as the corrected spelling', () => {
+    for (const pair of [
+      ['inclue_applications', 'include_applications'],
+      ['inclue_fonts', 'include_fonts'],
+      ['inclue_plugins', 'include_plugins'],
+    ]) {
+      const [typo, fixed] = pair as [string, string];
+      expect(expandInventoryQuery(typo).aliases, typo).toEqual(expandInventoryQuery(fixed).aliases);
+      expect(expandInventoryQuery(typo).aliases.length, typo).toBeGreaterThan(0);
+    }
+  });
+
+  it('flags a sweep that relied on a broad-substring guess', () => {
+    expect(expandInventoryQuery('package_receipts').hasUnconfirmedAliases).toBe(false);
+    expect(expandInventoryQuery('home_directory_sizes').hasUnconfirmedAliases).toBe(true);
+  });
+
+  it('returns no terms for an empty query rather than inventing one', () => {
+    expect(expandInventoryQuery('   ').terms).toEqual([]);
+    expect(expandInventoryQuery(null).terms).toEqual([]);
+  });
+});
+
+describe('INVENTORY_SETTING_CRITERION_ALIASES', () => {
+  // Presenting a guessed label as verified is the defect this guards. Only the
+  // package_receipts pair has been seen in a live tenant; anything else claiming
+  // `confirmed` was upgraded without checking.
+  it('marks only the live-verified pair as confirmed', () => {
+    const confirmed = Object.entries(INVENTORY_SETTING_CRITERION_ALIASES).flatMap(([key, aliases]) =>
+      aliases.filter((a) => a.confidence === 'confirmed').map((a) => `${key}:${a.term}`),
+    );
+    expect(confirmed.sort()).toEqual(['package_receipts:Cached Packages', 'package_receipts:Packages Installed']);
+  });
+
+  // A setting the cost report names but the alias map omits is exactly the false-zero
+  // case: the user reads the finding, searches the key, and gets "no references".
+  it('covers every setting named by assessInventoryCollection', () => {
+    const settingKeys = assessInventoryCollection({}).findings.flatMap((f) => f.setting.split(' / '));
+    for (const key of settingKeys) {
+      expect(INVENTORY_SETTING_CRITERION_ALIASES[key], `no criterion alias for ${key}`).toBeDefined();
+    }
+  });
+
+  it('gives every alias a non-empty term and a stated confidence', () => {
+    for (const [key, aliases] of Object.entries(INVENTORY_SETTING_CRITERION_ALIASES)) {
+      expect(aliases.length, key).toBeGreaterThan(0);
+      for (const alias of aliases) {
+        expect(alias.term.trim(), key).not.toBe('');
+        expect(['confirmed', 'broad-substring'], key).toContain(alias.confidence);
+      }
+    }
   });
 });

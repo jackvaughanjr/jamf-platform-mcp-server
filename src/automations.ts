@@ -21,6 +21,48 @@ export interface ExpensivePattern {
 }
 
 /**
+ * Depth at or below which a `find` from a high-level path counts as bounded, and
+ * so is not worth flagging.
+ *
+ * `find / -maxdepth 1` reads the ~20 entries at the root and exits. Reporting that
+ * as an expensive command is a false positive, and false positives are how an audit
+ * tool gets ignored — once someone dismisses two findings they dismiss the third,
+ * which is the real one.
+ *
+ * 3 is the cut. Depth 1-3 from `/` reaches `/Users/<user>/<dir>` and
+ * `/System/Library/<dir>` — thousands of entries, read in well under a second, and
+ * bounded no matter how much data the volume holds. Past that each extra level
+ * multiplies by the average directory fan-out, and by depth 5-6 the walk is inside
+ * per-user Library trees and `/System/Volumes`, where the entry count is driven by
+ * how much the user has installed rather than by the depth limit. A nominally
+ * bounded walk that deep costs what an unbounded one costs, so it still gets
+ * flagged.
+ *
+ * Exported because a threshold buried in a regex is not reviewable.
+ */
+export const BOUNDED_FIND_MAX_DEPTH = 3;
+
+/**
+ * Builds the `find` pattern: a walk from an absolute path, unless the same command
+ * bounds itself to a shallow `-maxdepth`.
+ *
+ * Two negative lookaheads, both deliberate:
+ *
+ * - `(?!\S*\bnull\b)` is pre-existing and stays: it keeps `find /dev/null` and
+ *   redirect-shaped noise out of the results.
+ * - the `-maxdepth` lookahead is scoped to `[^;|&\n]*` rather than the whole line,
+ *   so a bound belonging to a *different* command cannot excuse this one. On
+ *   `find / -type f; find /Users -maxdepth 1` the first walk is still flagged.
+ *
+ * Depths are enumerated rather than compared numerically, since matching happens in
+ * a regex. `\b` after the alternation stops `-maxdepth 12` from matching the `1`.
+ */
+function unboundedFindPattern(maxBoundedDepth: number): string {
+  const depths = Array.from({ length: maxBoundedDepth + 1 }, (_, i) => i).join('|');
+  return `find\\s+/(?!\\S*\\bnull\\b)(?![^;|&\\n]*-maxdepth\\s+(?:${depths})\\b)`;
+}
+
+/**
  * Commands that are expensive enough to matter when run repeatedly.
  *
  * Deliberately not exhaustive — a long list produces noise. These are the ones
@@ -28,7 +70,11 @@ export interface ExpensivePattern {
  */
 export const DEFAULT_EXPENSIVE_PATTERNS: ExpensivePattern[] = [
   { pattern: '\\bdu\\b', label: 'du', why: 'recursively walks and stats every file under a path' },
-  { pattern: 'find\\s+/(?!\\S*\\bnull\\b)', label: 'find /', why: 'filesystem walk from a high-level path' },
+  {
+    pattern: unboundedFindPattern(BOUNDED_FIND_MAX_DEPTH),
+    label: 'find /',
+    why: `filesystem walk from a high-level path with no shallow bound (no -maxdepth of ${BOUNDED_FIND_MAX_DEPTH} or less on the same command)`,
+  },
   { pattern: '\\bmdfind\\b', label: 'mdfind', why: 'Spotlight query; can force index work' },
   { pattern: 'system_profiler', label: 'system_profiler', why: 'takes seconds of CPU and spins hardware probes' },
   { pattern: 'softwareupdate\\s+(--list|-l)', label: 'softwareupdate --list', why: 'network round trip to Apple, often slow' },
@@ -182,6 +228,42 @@ export interface InventoryCostFinding {
   why: string;
 }
 
+/** The three collection options whose cost depends on configured search paths. */
+type SearchPathCategory = 'applications' | 'fonts' | 'plugins';
+
+/** A cost rating that custom search paths raised, and by how much. */
+export interface CustomSearchPathEscalation {
+  setting: string;
+  category: SearchPathCategory;
+  /** How many custom search paths that category has — each one is an extra walk. */
+  customSearchPaths: number;
+  from: InventoryCostFinding['cost'];
+  to: InventoryCostFinding['cost'];
+  /** Whether the option is actually on; a rating applies to the option either way. */
+  enabled: boolean;
+}
+
+/**
+ * Raises a rating to high because the category has custom search paths, and says so
+ * with the count.
+ *
+ * Jamf's default application, font and plug-in search paths are shallow and known
+ * (`/Applications`, the Library font and plug-in directories). A *custom* search
+ * path can be any directory — a whole user home, a data volume, a mounted share —
+ * and Jamf walks each one recursively on every collection. So the work is no longer
+ * bounded by Jamf's defaults, which is the same property that makes
+ * `home_directory_sizes` high cost, and it multiplies by the number of paths.
+ */
+function escalatedWhy(base: string, category: SearchPathCategory, count: number): string {
+  const noun = { applications: 'application', fonts: 'font', plugins: 'plug-in' }[category];
+  return (
+    `${base}. ${count} custom ${noun} search path${count === 1 ? '' : 's'} configured, so ` +
+    `this is ${count} additional recursive directory walk${count === 1 ? '' : 's'} per collection. ` +
+    'A custom path can point at an entire volume, so the added work is not bounded by ' +
+    "Jamf's own defaults."
+  );
+}
+
 /**
  * Rates inventory collection options by how much work each adds per collection.
  *
@@ -192,16 +274,39 @@ export interface InventoryCostFinding {
  * `home_directory_sizes` is called out as high cost specifically: Jamf computes it
  * by running `du` across every user home directory, which is the classic cause of a
  * `du` process appearing under JamfDaemon with a large energy impact.
+ *
+ * **Custom search paths escalate the rating.** Application, font and plug-in
+ * collection are cheap only while they use Jamf's own shallow default paths. Each
+ * custom path adds a recursive walk of a directory the administrator chose, which
+ * can be arbitrarily large — so any category with at least one custom path is rated
+ * high and its `why` states the count. A live tenant had three custom application
+ * search paths while application collection was still rated low, which is what this
+ * rule fixes: the rating contradicted its own explanation.
+ *
+ * `cost` describes the option, not the current configuration, so a category with
+ * custom paths is rated high whether or not collection is switched on — exactly as
+ * `home_directory_sizes` is rated high when disabled. `enabledHighCost` is what
+ * narrows that to what is actually running, so a caller keying an all-clear message
+ * off `enabledHighCost` cannot contradict the findings list.
  */
 export function assessInventoryCollection(settings: InventoryCollectionSettings | null | undefined): {
   findings: InventoryCostFinding[];
   enabledHighCost: string[];
+  escalatedForCustomSearchPaths: CustomSearchPathEscalation[];
   customSearchPaths: { applications: number; fonts: number; plugins: number };
 } {
   const on = (...keys: Array<keyof InventoryCollectionSettings>) =>
     keys.some((k) => settings?.[k] === true);
+  const pathCount = (key: SearchPathCategory) =>
+    Array.isArray(settings?.[key]) ? (settings[key] as unknown[]).length : 0;
 
-  const findings: InventoryCostFinding[] = [
+  const customSearchPaths = {
+    applications: pathCount('applications'),
+    fonts: pathCount('fonts'),
+    plugins: pathCount('plugins'),
+  };
+
+  const base: Array<InventoryCostFinding & { category?: SearchPathCategory }> = [
     {
       setting: 'home_directory_sizes',
       enabled: on('home_directory_sizes'),
@@ -225,18 +330,21 @@ export function assessInventoryCollection(settings: InventoryCollectionSettings 
       enabled: on('inclue_fonts', 'include_fonts'),
       cost: 'medium',
       why: 'walks font directories on every collection',
+      category: 'fonts',
     },
     {
       setting: 'inclue_plugins / include_plugins',
       enabled: on('inclue_plugins', 'include_plugins'),
       cost: 'medium',
       why: 'walks plug-in directories on every collection',
+      category: 'plugins',
     },
     {
       setting: 'inclue_applications / include_applications',
       enabled: on('inclue_applications', 'include_applications'),
       cost: 'low',
-      why: 'application inventory; usually acceptable, but adds a walk per custom search path',
+      why: 'application inventory; acceptable while it uses only the default search path',
+      category: 'applications',
     },
     {
       setting: 'active_services',
@@ -253,14 +361,29 @@ export function assessInventoryCollection(settings: InventoryCollectionSettings 
     },
   ];
 
+  const escalatedForCustomSearchPaths: CustomSearchPathEscalation[] = [];
+
+  const findings: InventoryCostFinding[] = base.map(({ category, ...finding }) => {
+    const count = category ? customSearchPaths[category] : 0;
+    if (!category || count === 0) return finding;
+    escalatedForCustomSearchPaths.push({
+      setting: finding.setting,
+      category,
+      customSearchPaths: count,
+      from: finding.cost,
+      to: 'high',
+      enabled: finding.enabled,
+    });
+    return { ...finding, cost: 'high', why: escalatedWhy(finding.why, category, count) };
+  });
+
   return {
     findings,
+    // Derived after escalation, so an escalated option shows up here too — the
+    // summary cannot say "nothing high-cost is enabled" while a finding says high.
     enabledHighCost: findings.filter((f) => f.enabled && f.cost === 'high').map((f) => f.setting),
-    customSearchPaths: {
-      applications: Array.isArray(settings?.applications) ? settings.applications.length : 0,
-      fonts: Array.isArray(settings?.fonts) ? settings.fonts.length : 0,
-      plugins: Array.isArray(settings?.plugins) ? settings.plugins.length : 0,
-    },
+    escalatedForCustomSearchPaths,
+    customSearchPaths,
   };
 }
 
@@ -307,6 +430,136 @@ export function extractClassicDetail<T>(
     if (value !== undefined && value !== null) return value as T;
   }
   return undefined;
+}
+
+/**
+ * One term to sweep for, and how much the term is actually trusted.
+ *
+ * The distinction is the whole point of the type. An alias presented as Jamf's real
+ * criterion label when nobody has checked is worse than no alias at all: it makes a
+ * zero-result answer look thoroughly searched.
+ */
+export interface CriterionAlias {
+  /** Substring matched against criterion names, criterion values and display fields. */
+  term: string;
+  /**
+   * `confirmed` — this exact string was observed as a criterion name in a live Jamf
+   * tenant.
+   *
+   * `broad-substring` — Jamf's exact label is NOT known. The term is deliberately
+   * the widest fragment every plausible label would contain ("Home Directory", not a
+   * guessed "Home Directory Size"), which over-matches. That is the safe direction:
+   * an extra object to review costs a glance, a missed reference costs a smart group
+   * silently emptying and every policy scoped to it stopping.
+   */
+  confidence: 'confirmed' | 'broad-substring';
+}
+
+/**
+ * Inventory-collection setting key → the criterion name(s) Jamf exposes for that data.
+ *
+ * Why this exists: **Jamf's inventory-collection setting keys are not its
+ * smart-group criterion names.** `package_receipts` is the setting, but criteria
+ * query it as "Packages Installed" and "Cached Packages" — not one character of
+ * overlap. Searching the setting key therefore returns zero references whether or
+ * not consumers exist, and a false zero here is acted on by disabling collection,
+ * which empties the groups that depend on it.
+ *
+ * THIS MAP IS NECESSARILY INCOMPLETE AND PARTLY UNVERIFIED. Jamf's criterion labels
+ * are not published as a machine-readable list and vary by Jamf Pro version, so only
+ * `package_receipts` is confirmed against a live tenant. Every other entry is a
+ * `broad-substring` fallback — see `CriterionAlias`. Adding an entry means either
+ * confirming the label against a real tenant or marking it `broad-substring`;
+ * upgrading a guess to `confirmed` without checking defeats the purpose of the field.
+ *
+ * The misspelled keys are Jamf's own (`inclue_*`), and map to the same aliases as the
+ * corrected spellings so either spelling of a query works.
+ */
+export const INVENTORY_SETTING_CRITERION_ALIASES: Readonly<Record<string, readonly CriterionAlias[]>> = {
+  // Confirmed against a live tenant: both labels observed as criterion names.
+  package_receipts: [
+    { term: 'Packages Installed', confidence: 'confirmed' },
+    { term: 'Cached Packages', confidence: 'confirmed' },
+  ],
+  // Unconfirmed below. Each term is the broadest fragment any plausible label for
+  // that data would have to contain.
+  home_directory_sizes: [{ term: 'Home Directory', confidence: 'broad-substring' }],
+  available_software_updates: [
+    { term: 'Software Update', confidence: 'broad-substring' },
+    // A label counting them ("Number of Available Updates") contains neither
+    // "Software Update" nor "Available Software", so it needs its own fragment.
+    { term: 'Available Update', confidence: 'broad-substring' },
+  ],
+  include_applications: [{ term: 'Application', confidence: 'broad-substring' }],
+  inclue_applications: [{ term: 'Application', confidence: 'broad-substring' }],
+  include_fonts: [{ term: 'Font', confidence: 'broad-substring' }],
+  inclue_fonts: [{ term: 'Font', confidence: 'broad-substring' }],
+  // "Plug" rather than "Plugin", because Jamf writes it both ways ("Plug-in Title",
+  // "Plugin") and the hyphen would split a narrower fragment.
+  include_plugins: [{ term: 'Plug', confidence: 'broad-substring' }],
+  inclue_plugins: [{ term: 'Plug', confidence: 'broad-substring' }],
+  active_services: [{ term: 'Service', confidence: 'broad-substring' }],
+  printers: [{ term: 'Printer', confidence: 'broad-substring' }],
+  local_user_accounts: [
+    { term: 'Local User', confidence: 'broad-substring' },
+    // Covers labels that drop "Local" ("Accounts", "Hidden Accounts").
+    { term: 'Account', confidence: 'broad-substring' },
+  ],
+};
+
+export interface InventoryQueryExpansion {
+  /** The query as given, trimmed. */
+  query: string;
+  /** Terms to sweep: the query first, then aliases, de-duplicated case-insensitively. */
+  terms: string[];
+  /** The setting key the query resolved to, if any. Absent for a free-text query. */
+  matchedSettingKey?: string;
+  /** Aliases added beyond the query itself, with their confidence. */
+  aliases: CriterionAlias[];
+  /**
+   * True when at least one added alias is a `broad-substring` fallback. A caller
+   * reporting "no references found" should say this, because the sweep used a guessed
+   * label rather than a confirmed one.
+   */
+  hasUnconfirmedAliases: boolean;
+}
+
+/**
+ * Expands a query into every term worth sweeping.
+ *
+ * The query itself is always first and always kept, even when it matches a setting
+ * key: the key can legitimately appear in an extension-attribute name or a criterion
+ * value, and dropping it would trade one blind spot for another.
+ *
+ * Lookup normalises case and treats spaces and hyphens as underscores, so
+ * `package_receipts`, `Package Receipts` and `package-receipts` all resolve. That
+ * only ever *adds* terms, so a normalisation surprise cannot silence a search.
+ */
+export function expandInventoryQuery(query: string | null | undefined): InventoryQueryExpansion {
+  const trimmed = (query ?? '').trim();
+  if (trimmed === '') {
+    return { query: '', terms: [], aliases: [], hasUnconfirmedAliases: false };
+  }
+
+  const key = trimmed.toLowerCase().replace(/[\s-]+/g, '_');
+  const aliases = [...(INVENTORY_SETTING_CRITERION_ALIASES[key] ?? [])];
+
+  const terms: string[] = [];
+  const seen = new Set<string>();
+  for (const term of [trimmed, ...aliases.map((a) => a.term)]) {
+    const dedupeKey = term.toLowerCase();
+    if (term === '' || seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    terms.push(term);
+  }
+
+  return {
+    query: trimmed,
+    terms,
+    ...(aliases.length > 0 ? { matchedSettingKey: key } : {}),
+    aliases,
+    hasUnconfirmedAliases: aliases.some((a) => a.confidence === 'broad-substring'),
+  };
 }
 
 /** A criterion inside a smart group or advanced search. */
