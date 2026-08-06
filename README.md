@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-163%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-170%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -98,7 +98,8 @@ which supersedes JPM-0005 and explains how the error happened.
 
 Tools: `getFleetOverview`, `findDevices`, `findOutdatedDevices`, `findDeviceGroups`,
 `getDeviceGroupMembers`, `findExpensiveAutomations`, `getInventoryCollectionSettings`
-and `findCriteriaReferences` (compound), `listBlueprints` (typed), and
+and `findCriteriaReferences` (compound), `listBlueprints` and
+`getDeviceDeclarationState` (typed), and
 `platformRequest` (authenticated **GET-only** passthrough to any gateway route). Tool
 count stays deliberately small
 ([JPM-0003](decisions/JPM-0003-passthrough-plus-selective-typed-tools.md)).

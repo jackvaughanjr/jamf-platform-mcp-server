@@ -10,6 +10,7 @@ import {
   platformOf,
   selectOutdatedDevices,
   summarizeBlueprints,
+  summarizeDeclarations,
   summarizeDevices,
   summarizeGroups,
   type DeviceRecord,
@@ -407,5 +408,82 @@ describe('matchesDeviceQuery', () => {
 
   it('tolerates records with null or missing fields', () => {
     expect(matchesDeviceQuery({ name: null, serialNumber: undefined }, 'x')).toBe(false);
+  });
+});
+
+describe('summarizeDeclarations', () => {
+  it('counts by status, type and channel without a hardcoded enum list', () => {
+    // A value Jamf has not documented must land in a bucket, not vanish — every enum
+    // in this API already carries UNKNOWN, so new members are expected.
+    const s = summarizeDeclarations([
+      { status: 'SUCCESSFUL', type: 'CONFIGURATION', channel: 'device' },
+      { status: 'SUCCESSFUL', type: 'ACTIVATION', channel: 'device' },
+      { status: 'SOMETHING_JAMF_ADDED_LATER', type: 'ASSET', channel: 'user' },
+    ]);
+    expect(s.total).toBe(3);
+    expect(s.byStatus).toEqual({ SUCCESSFUL: 2, SOMETHING_JAMF_ADDED_LATER: 1 });
+    expect(s.byType).toEqual({ CONFIGURATION: 1, ACTIVATION: 1, ASSET: 1 });
+    expect(s.byChannel).toEqual({ device: 2, user: 1 });
+  });
+
+  it('buckets an absent field rather than dropping the record', () => {
+    const s = summarizeDeclarations([{ declarationIdentifier: 'x' }]);
+    expect(s.total).toBe(1);
+    expect(s.byStatus).toEqual({ '(absent)': 1 });
+  });
+
+  it('pulls out unsuccessful declarations with their reasons flattened', () => {
+    const s = summarizeDeclarations([
+      { declarationIdentifier: 'ok', status: 'SUCCESSFUL', validityState: 'VALID' },
+      {
+        declarationIdentifier: 'Blueprint_FileVault',
+        status: 'UNSUCCESSFUL',
+        channel: 'device',
+        validityState: 'VALID',
+        lastReportTime: '2026-08-01T00:00:00Z',
+        reasons: [
+          {
+            code: 'Error.ConfigurationCannotBeApplied',
+            description: 'Configuration cannot be applied',
+            details: [{ key: 'PayloadType', description: 'com.apple.fdefilevault' }],
+          },
+        ],
+      },
+    ]);
+    expect(s.failed).toHaveLength(1);
+    expect(s.failed[0]?.declarationIdentifier).toBe('Blueprint_FileVault');
+    expect(s.failed[0]?.reasons).toEqual([
+      'Error.ConfigurationCannotBeApplied: Configuration cannot be applied',
+      '  PayloadType: com.apple.fdefilevault',
+    ]);
+  });
+
+  // A declaration can report SUCCESSFUL delivery while being INVALID on the device.
+  // Calling that healthy is the false all-clear this project keeps rediscovering.
+  it('treats INVALID validity as a failure even when the status is SUCCESSFUL', () => {
+    const s = summarizeDeclarations([
+      { declarationIdentifier: 'broken', status: 'SUCCESSFUL', validityState: 'INVALID' },
+    ]);
+    expect(s.failed).toHaveLength(1);
+    expect(s.failed[0]?.reasons).toEqual(['validityState INVALID, no reason reported']);
+  });
+
+  it('says a reason was absent rather than returning an empty reason list', () => {
+    const s = summarizeDeclarations([{ declarationIdentifier: 'x', status: 'UNSUCCESSFUL' }]);
+    expect(s.failed[0]?.reasons).toEqual(['no reason reported']);
+  });
+
+  it('counts inactive declarations without treating them as failures', () => {
+    const s = summarizeDeclarations([
+      { declarationIdentifier: 'a', status: 'SUCCESSFUL', active: false },
+      { declarationIdentifier: 'b', status: 'SUCCESSFUL', active: true },
+    ]);
+    expect(s.inactive).toBe(1);
+    expect(s.failed).toEqual([]);
+  });
+
+  it('reports nothing rather than throwing on an empty list', () => {
+    const s = summarizeDeclarations([]);
+    expect(s).toEqual({ total: 0, byStatus: {}, byType: {}, byChannel: {}, inactive: 0, failed: [] });
   });
 });

@@ -17,6 +17,23 @@ for a search term that could never have matched.
 
 ### Added
 
+- **`getDeviceDeclarationState`** — the first typed tool for Declaration Reporting,
+  and the companion to `listBlueprints`: a Blueprint deploys declarations, and this
+  reports whether they landed. Resolves a device by UUID or by a substring of name,
+  serial, model or user; an ambiguous substring returns candidates. Leads with what
+  failed, flattening Jamf's nested `reasons` (code, description, and per-detail
+  lines), since a status count answers "is this device healthy" and never "why not".
+  `INVALID` validity counts as a failure even alongside a `SUCCESSFUL` status,
+  because a declaration can be delivered and still be invalid on the device.
+  Status/type/channel are tallied by observed value rather than against a fixed enum
+  list — every enum in this API already carries `UNKNOWN`, so a member Jamf adds
+  later must not fall into no bucket.
+  Two caveats are reported in the response rather than left in a doc: Jamf **requires**
+  a filter and applies filters only to declarations already on the device, so
+  **PENDING declarations are invisible** and a quiet result does not mean deployment
+  finished; and the `declarations` route, while published with a matching path shape,
+  had never been called live when this shipped — the discovery script stops at its
+  first 200 — so the two legs settle independently and a failure names itself.
 - **`requestAll` pages each segment by its own family.** `inferPagingFamily` derives
   the family from the service segment, with an explicit `pagingFamily` override.
   Inference is the default because both deviations are silent, so an opt-in parameter

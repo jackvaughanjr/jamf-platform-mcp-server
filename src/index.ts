@@ -29,8 +29,10 @@ import {
   matchesGroupQuery,
   selectOutdatedDevices,
   summarizeBlueprints,
+  summarizeDeclarations,
   summarizeDevices,
   summarizeGroups,
+  type DeclarationRecord,
   type BlueprintRecord,
   type DeviceGroupRecord,
   type DeviceRecord,
@@ -900,6 +902,168 @@ server.registerTool(
                 ? ' Weaker than usual here: some terms swept are broad-substring fallbacks whose exact Jamf criterion labels are unverified, so a miss could mean the label differs rather than that nothing consumes the field.'
                 : '')
             : `${total} object(s) reference ${swept} — review them before disabling the underlying collection.`,
+        ...(Object.keys(errors).length > 0 ? { partialFailures: errors } : {}),
+      });
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+/**
+ * Declaration Reporting: what a Blueprint actually did on one device.
+ *
+ * Blueprints deploy declarations; this is the only route that says whether they
+ * landed, and `reasons` is the only field that says why one did not. That makes it
+ * the natural companion to `listBlueprints` rather than another inventory read.
+ *
+ * Two things about this endpoint are worth knowing before trusting its answer, and
+ * both are surfaced in the response rather than left in a doc:
+ *
+ * 1. `filter` is REQUIRED, and Jamf documents that filters "only apply to
+ *    declarations already on the device (excludes PENDING status)". So a filtered
+ *    read cannot see pending declarations at all — a device mid-deployment looks
+ *    emptier than it is. The tool says so instead of implying completeness.
+ * 2. This group pages with `page` + `size`, not `page-size`. `requestAll` infers
+ *    that from the `ddm/report` segment (see `inferPagingFamily`); getting it wrong
+ *    silently caps the answer at 20 records.
+ *
+ * The `channels` leg is the route confirmed live against a tenant; `declarations` is
+ * published and its path shape matches, but had never been called when this was
+ * written — the discovery script stops at its first 200. So the legs settle
+ * independently and a failure names itself, rather than one unproven route taking
+ * down an answer the other could still give.
+ */
+server.registerTool(
+  'getDeviceDeclarationState',
+  {
+    title: 'Get device declaration state',
+    description:
+      'Report the declarative device management (DDM) state for one device: which ' +
+      'declarations are applied, their status and validity, and — for anything that ' +
+      'failed — the reasons Jamf gives. The companion to listBlueprints, since a ' +
+      'Blueprint deploys declarations and this says whether they landed. Accepts a ' +
+      'device UUID, or a substring of a name, serial, model or user; an ambiguous ' +
+      'substring returns candidates rather than guessing. NOTE: Jamf excludes PENDING ' +
+      'declarations from any filtered read, so a device mid-deployment will look ' +
+      'emptier than it is — see excludedFromThisAnswer in the result.',
+    inputSchema: {
+      device: z
+        .string()
+        .min(1)
+        .describe('Device UUID, or a substring of the device name, serial, model or user id'),
+      filter: z
+        .string()
+        .optional()
+        .describe(
+          'RSQL filter. Jamf requires one, so this defaults to "declarationIdentifier==*" ' +
+            '(match all). Filter fields: declarationIdentifier, active, declarationType, ' +
+            'validityState, dateUpdated, channel. Wildcards on declarationIdentifier are ' +
+            'case-insensitive, e.g. "declarationIdentifier==Blueprint_*".',
+        ),
+      includeChannels: z
+        .boolean()
+        .optional()
+        .describe('Also list the device\'s available DDM channels. Defaults to true.'),
+    },
+  },
+  async ({ device, filter, includeChannels }) => {
+    try {
+      let deviceId = looksLikeUuid(device) ? device.trim() : undefined;
+      let deviceName: string | undefined;
+      let deviceSerial: string | null | undefined;
+
+      if (!deviceId) {
+        const all = await client.requestAll<DeviceRecord>({ service: 'devices', resource: 'devices' });
+        const matches = all.filter((d) => matchesDeviceQuery(d, device));
+        if (matches.length === 0) {
+          return asContent({ query: device, matched: 0, hint: 'No device matched. Try findDevices.' });
+        }
+        if (matches.length > 1) {
+          // Declaration state is per-device and the answer differs between them, so
+          // guessing would confidently describe the wrong Mac.
+          return asContent({
+            query: device,
+            matched: matches.length,
+            hint: 'Ambiguous — re-run with one of these ids or a more specific substring.',
+            candidates: matches.slice(0, 25).map((d) => ({
+              id: d.id,
+              name: d.name,
+              serialNumber: d.serialNumber,
+              model: d.model,
+            })),
+            ...(matches.length > 25 ? { candidatesTruncated: matches.length - 25 } : {}),
+          });
+        }
+        deviceId = matches[0]?.id;
+        deviceName = matches[0]?.name;
+        deviceSerial = matches[0]?.serialNumber;
+        if (!deviceId) return asError(new Error('matched device has no id'));
+      }
+
+      const rsql = filter ?? 'declarationIdentifier==*';
+      const errors: Record<string, string> = {};
+
+      const [declarationsLeg, channelsLeg] = await Promise.allSettled([
+        // requestAll infers the `size` paging family from the ddm/report segment.
+        client.requestAll<DeclarationRecord>({
+          service: 'ddm/report',
+          resource: `devices/${deviceId}/declarations`,
+          query: { filter: rsql },
+        }),
+        includeChannels === false
+          ? Promise.resolve<string[]>([])
+          : client
+              .request<{ deviceId?: string; channels?: string[] }>({
+                service: 'ddm/report',
+                resource: `devices/${deviceId}/channels`,
+              })
+              .then((b) => b?.channels ?? []),
+      ]);
+
+      if (declarationsLeg.status === 'rejected') errors.declarations = legError(declarationsLeg.reason);
+      if (channelsLeg.status === 'rejected') errors.channels = legError(channelsLeg.reason);
+
+      // An audit that cannot read its input must not report a clean bill of health.
+      if (declarationsLeg.status === 'rejected' && channelsLeg.status === 'rejected') {
+        return asError(
+          new Error(
+            'both Declaration Reporting legs failed, so nothing is known about this ' +
+              `device's declaration state: ${JSON.stringify(errors)}`,
+          ),
+        );
+      }
+
+      const declarations = declarationsLeg.status === 'fulfilled' ? declarationsLeg.value : [];
+      const summary = summarizeDeclarations(declarations);
+
+      return asContent({
+        device: {
+          id: deviceId,
+          ...(deviceName ? { name: deviceName } : {}),
+          ...(deviceSerial ? { serialNumber: deviceSerial } : {}),
+        },
+        filter: rsql,
+        ...(declarationsLeg.status === 'fulfilled' ? summary : { declarationsUnavailable: true }),
+        ...(channelsLeg.status === 'fulfilled' && channelsLeg.value.length > 0
+          ? { channels: channelsLeg.value }
+          : {}),
+        // Stated in the answer, not just the docs: a filtered read cannot see PENDING,
+        // so "no failures" here does not mean "fully deployed".
+        excludedFromThisAnswer: [
+          'PENDING declarations — Jamf applies filters only to declarations already on ' +
+            'the device, and a filter is required, so anything still awaiting delivery is ' +
+            'invisible here. A quiet result does not mean deployment finished.',
+          ...(includeChannels === false ? ['channels, not requested'] : []),
+        ],
+        verdict:
+          declarationsLeg.status !== 'fulfilled'
+            ? 'Declaration state could not be read; see partialFailures.'
+            : summary.failed.length > 0
+              ? `${summary.failed.length} of ${summary.total} declaration(s) failed or are invalid — see failed[].reasons.`
+              : summary.total === 0
+                ? 'No declarations matched. Either none are deployed to this device, or all of them are still PENDING and therefore excluded by the filter.'
+                : `All ${summary.total} matched declaration(s) report healthy, excluding anything PENDING.`,
         ...(Object.keys(errors).length > 0 ? { partialFailures: errors } : {}),
       });
     } catch (error) {

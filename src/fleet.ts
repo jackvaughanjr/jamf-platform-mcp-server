@@ -405,3 +405,116 @@ export function matchesDeviceQuery(device: DeviceRecord, query: string): boolean
   ];
   return haystack.some((field) => typeof field === 'string' && field.toLowerCase().includes(q));
 }
+
+/**
+ * One declaration's reported state on one device, from
+ * `ddm/report` → `devices/{id}/declarations`.
+ *
+ * Field names and enum members are taken from the operation's own reference page
+ * (`getdevicereportbyfilter`). Every enum carries `UNKNOWN` upstream, so none of
+ * these is treated as a closed set here — a value Jamf adds later must not become a
+ * silent miscount.
+ */
+export interface DeclarationRecord {
+  declarationIdentifier?: string;
+  deviceId?: string;
+  channel?: string;
+  type?: string;
+  status?: string;
+  active?: boolean;
+  validityState?: string;
+  serverToken?: string;
+  dateUpdated?: string | null;
+  lastReportTime?: string | null;
+  reasons?: Array<{
+    code?: string;
+    description?: string;
+    details?: Array<{ key?: string; description?: string }>;
+  }>;
+}
+
+/** A declaration that did not land, with the reasons flattened for reading. */
+export interface FailedDeclaration {
+  declarationIdentifier: string;
+  channel?: string;
+  type?: string;
+  status?: string;
+  validityState?: string;
+  lastReportTime?: string | null;
+  /** `code: description` per reason, plus any detail lines. */
+  reasons: string[];
+}
+
+/**
+ * Summarises per-device declaration state, leading with what is wrong.
+ *
+ * A count by status answers "is this device healthy"; it does not answer "why is it
+ * not", which is the only question worth asking next. `reasons` is the one field that
+ * carries that, so failures are pulled out with their reasons flattened rather than
+ * left for the caller to dig out of a nested array.
+ *
+ * Counting is by observed value, not against a hardcoded enum list, because every
+ * enum in this API already includes `UNKNOWN` — so Jamf clearly expects to add
+ * members, and a fixed switch would drop a new one into no bucket at all.
+ *
+ * `INVALID` validity is treated as a failure alongside an unsuccessful status: a
+ * declaration can report SUCCESSFUL delivery while being invalid on the device, and
+ * reporting that as healthy is the same class of false all-clear this project keeps
+ * finding.
+ */
+export function summarizeDeclarations(records: DeclarationRecord[]): {
+  total: number;
+  byStatus: Record<string, number>;
+  byType: Record<string, number>;
+  byChannel: Record<string, number>;
+  inactive: number;
+  failed: FailedDeclaration[];
+} {
+  const tally = (values: Array<string | undefined>) =>
+    values.reduce<Record<string, number>>((acc, value) => {
+      const key = value ?? '(absent)';
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {});
+
+  const failed: FailedDeclaration[] = [];
+  for (const record of records) {
+    const badStatus = record.status === 'UNSUCCESSFUL';
+    const badValidity = record.validityState === 'INVALID';
+    if (!badStatus && !badValidity) continue;
+
+    const reasons: string[] = [];
+    for (const reason of record.reasons ?? []) {
+      const head = [reason.code, reason.description].filter(Boolean).join(': ');
+      if (head) reasons.push(head);
+      for (const detail of reason.details ?? []) {
+        const line = [detail.key, detail.description].filter(Boolean).join(': ');
+        if (line) reasons.push(`  ${line}`);
+      }
+    }
+    // Say so rather than returning an empty array that reads as "no reason given
+    // because nothing is wrong".
+    if (reasons.length === 0) {
+      reasons.push(badValidity && !badStatus ? 'validityState INVALID, no reason reported' : 'no reason reported');
+    }
+
+    failed.push({
+      declarationIdentifier: record.declarationIdentifier ?? '(unnamed)',
+      channel: record.channel,
+      type: record.type,
+      status: record.status,
+      validityState: record.validityState,
+      lastReportTime: record.lastReportTime ?? null,
+      reasons,
+    });
+  }
+
+  return {
+    total: records.length,
+    byStatus: tally(records.map((r) => r.status)),
+    byType: tally(records.map((r) => r.type)),
+    byChannel: tally(records.map((r) => r.channel)),
+    inactive: records.filter((r) => r.active === false).length,
+    failed,
+  };
+}
