@@ -39,7 +39,9 @@ export interface RequestOptions {
   /**
    * Everything after `/api/{service}`, used verbatim. The escape hatch for
    * shapes the templates cannot express — notably Jamf Pro Classic, which is
-   * `/JSSResource/{resource}` with no version segment at all.
+   * `/tenant/{tenantId}/{resource}` with no version segment at all, so neither
+   * template fits. There is no `/JSSResource/` prefix on the gateway.
+   * Nothing is inserted, so the tenant segment must be supplied here.
    * Takes precedence over `resource` / `version` / `style`.
    */
   rawPath?: string;
@@ -179,8 +181,9 @@ export class JamfPlatformClient {
    *   style 'flat'              /api/{service}/{version}/{resource}
    *   rawPath                   /api/{service}{rawPath}          (verbatim)
    *
-   * rawPath exists because Jamf Pro Classic is `/JSSResource/{resource}` with no
-   * version segment, which neither template can produce.
+   * rawPath exists because Jamf Pro Classic is `/tenant/{tenantId}/{resource}`
+   * with no version segment, which neither template can produce — `tenant` always
+   * inserts a version and `flat` always drops the tenant.
    */
   buildUrl(options: RequestOptions): string {
     let suffix: string;

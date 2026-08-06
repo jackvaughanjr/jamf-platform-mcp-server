@@ -5,7 +5,20 @@ Compiled from the per-group `llms.txt` files under
 specification is published for the gateway, so this is the closest thing to a
 machine-readable index.
 
-**Full path shape:** `{base}/api/{service}/{version}/tenant/{tenantId}/{resource}`
+**This document is the *documented* surface, not the confirmed one.**
+[`gateway-reference.md`](gateway-reference.md) is the authority for what the
+gateway actually does — path shapes, status semantics, per-group response
+conventions. Where the two disagree, the live tenant wins and this file is wrong.
+
+**Path shapes:** two have returned 200, and both put the tenant in the path.
+
+```
+{base}/api/{service}/{version}/tenant/{tenantId}/{resource}    most groups
+{base}/api/proclassic/tenant/{tenantId}/{resource}             Classic — NO version
+```
+
+`{service}` may be **more than one segment** — Declaration Reporting is served at
+`/api/ddm/report/`.
 
 **The docs omit `/api/{service}`.** Every path below is reproduced as documented,
 starting at `/v1/...`. The service segment must be prepended and is *not* the
@@ -13,47 +26,58 @@ scope prefix — Blueprints needs `read:pro:blueprints` but lives at
 `/api/blueprints/...`. Run `scripts/discover-gateway.sh` to resolve segments
 empirically; results land in `fixtures/discovery-report.md`.
 
-Legend: **R** = reachable with read-only scopes · **W** = write, blocked by a
-read-only integration.
+Legend: **R** = reachable with read-only scopes · **W** = write. No write has ever
+been attempted, and per
+[JPM-0007](../decisions/JPM-0007-write-path-posture.md) the destructive ones never
+will be from this server.
 
-## Discovery results (2026-08-04)
+## Resolved segments (corrected 2026-08-05)
 
 | group | segment | style | outcome |
 |---|---|---|---|
 | Blueprints | `blueprints` | `tenant` | **200 confirmed** |
+| Blueprint components | `blueprints` | `tenant` | **200 confirmed** — resource is `blueprint-components` |
 | Devices | `devices` | `tenant` | **200 confirmed** |
 | Device Groups | `device-groups` | `tenant` | **200 confirmed** |
-| Jamf Pro API | `pro` | `tenant` | **200 confirmed** |
-| Blueprint components | — | — | unresolved (403 BAD_PERMISSIONS = unknown route) |
-| Declaration Reporting | — | — | unresolved (403 BAD_PERMISSIONS = unknown route) |
-| Jamf Pro Classic | — | — | unresolved (403 BAD_PERMISSIONS = unknown route) |
-| Compliance Benchmarks | `compliance-benchmarks` | `flat` | route recognised, gateway refuses it |
+| Jamf Pro API | `pro` | `tenant` | **200 confirmed** — the Jamf Pro API only |
+| Jamf Pro Classic | `proclassic` | `raw` | **200 confirmed** — no version segment |
+| Declaration Reporting | `ddm/report` | `tenant` | **200 confirmed** |
+| Device Management Actions | `device-actions` | `tenant` | hosted; all-write, never called |
+| Compliance Benchmarks | `compliance-benchmarks` | `tenant` | routes, then **500 `Upstream host lookup failed`** |
 
-A previous revision of this table claimed all eight were resolved, reading 403 as
-"path correct, scope missing". Negative controls disproved that: a route that
-cannot exist returns 403 BAD_PERMISSIONS, while an unknown service returns 404.
-See CLAUDE.md for the full status semantics.
+**Seven groups reachable across seven segments, plus one broken upstream.** Two
+earlier revisions of this table were wrong in opposite directions — first claiming
+all eight resolved by reading 403 as "path correct, scope missing", then declaring
+Classic, Declaration Reporting and Compliance Benchmarks unreachable. Both errors
+came from probing candidate paths while reading only the index `llms.txt` files.
+The individual endpoint reference pages publish the exact path for every operation
+and had the answers throughout. Recorded as
+[JPM-0006](../decisions/JPM-0006-classic-and-declaration-reporting-are-supported.md),
+which supersedes [JPM-0005](../decisions/JPM-0005-unsupported-api-groups.md).
 
-The four confirmed 200s are unaffected. `pro` remains an umbrella segment for the
-Jamf Pro API, and remains the route to 300+ endpoints.
+Specifically retracted:
 
-**Eight groups, five segments.** `pro` is an umbrella serving the Jamf Pro API,
-the Classic API, and Declaration Reporting.
-
-**Classic:** `/api/pro/JSSResource/tenant/{tenantId}/{resource}`. The bare
-`/JSSResource/{resource}` 404s — the tenant-scoped variant is required, and it
-carries no version segment. 500+ endpoints reachable through `rawPath`.
+- ~~`pro` is an umbrella serving the Jamf Pro API, Classic and Declaration
+  Reporting~~ — it serves the Jamf Pro API alone.
+- ~~Classic is `/api/pro/JSSResource/tenant/{tenantId}/{resource}`~~ — **no
+  `/JSSResource/` prefix exists on the gateway at all.** Classic is
+  `/api/proclassic/tenant/{tenantId}/{resource}`. 500+ endpoints reachable through
+  `rawPath`.
+- ~~Compliance Benchmarks is the only `flat` group~~ — it takes a tenant segment
+  like everything else. No `flat` request has ever returned 200; every one answers
+  400 `REQUEST_CONTEXT_NOT_PROVIDED`.
 
 **Declaration Reporting** does take a tenant segment even though its published
-paths omit one, and it is ID-only with no collection endpoint.
+paths omit one, and it is ID-only with no collection endpoint. It paginates with
+`page` and **`size`** — not `page-size`, which is silently ignored.
 
-**Compliance Benchmarks** is the only `flat` group — no tenant segment at all.
+**Classic response conventions differ from every other group:** a named-key
+envelope (`{"scripts": [...]}` for lists, `{"script": {...}}` for details) with
+`snake_case` fields, no `results[]`, no `totalCount` and no paging envelope. The
+reference pages document the singular XML element, so reading them literally and
+looking for `script` in JSON finds nothing.
 
-Both groups that the first pass reported as 404 were resolved once the probe
-swept segment × resource × style instead of segment alone. Holding style fixed
-was the flaw, not the candidate names.
-
-## Devices — segment candidate: `devices`
+## Devices — segment **confirmed**: `devices`
 
 | | Method | Path |
 |---|---|---|
@@ -64,7 +88,7 @@ was the flaw, not the candidate names.
 | W | PATCH | `/v1/tenant/{tenantid}/devices/{id}` |
 | W | DELETE | `/v1/tenant/{tenantid}/devices/{id}` |
 
-## Device Groups — segment candidates: `device-groups`, `devicegroups`
+## Device Groups — segment **confirmed**: `device-groups`
 
 | | Method | Path |
 |---|---|---|
@@ -99,7 +123,14 @@ paths, so operations are listed by name. Detail payloads expose `name`,
 `deploymentState.state`, `scope.deviceGroups` / `scope.deviceGroupIds`, and
 `steps[].components[].identifier`.
 
-## Compliance Benchmarks — segment candidates: `compliance-benchmarks`, `benchmarks`, `compliance`
+## Compliance Benchmarks — segment **confirmed**: `compliance-benchmarks`
+
+The documented path is correct — `/v1/tenant/{tenantId}/benchmarks`, `tenant` style
+— but the gateway returns **500 `{"error":"Upstream host lookup failed"}`**: it
+routes the request and cannot reach its own backend. The licence is confirmed, so
+this is a genuine fault on Jamf's side, not a scope or path problem. Nothing below
+is callable today. A canary probe stays in `scripts/discover-gateway.sh` so a fix
+gets noticed; trace IDs are in `fixtures/raw/errors/` (gitignored).
 
 | | Method | Operation |
 |---|---|---|
@@ -116,7 +147,7 @@ paths, so operations are listed by name. Detail payloads expose `name`,
 Seven read operations — the largest read surface of the new APIs, and the most
 likely to replace hand-rolled compliance logic.
 
-## Declaration Reporting — segment candidates: `declaration-reporting`, `declarations`
+## Declaration Reporting — segment **confirmed**: `ddm/report`
 
 | | Method | Path |
 |---|---|---|
@@ -126,15 +157,23 @@ likely to replace hand-rolled compliance logic.
 | R | GET | Get device channels *(path not published)* |
 | R | GET | Get filtered declaration report devices *(path not published)* |
 
-Note the inconsistency: these paths as documented have **no `tenant/{tenantId}`
-segment**, unlike every other group. Either the docs are abbreviating or this
-group genuinely differs — worth confirming before wiring a tool, since
-`buildUrl` currently always inserts the tenant segment.
+The published paths above have **no `tenant/{tenantId}` segment**, unlike every
+other group — the docs were abbreviating. Confirmed live: the gateway requires the
+tenant segment here too, at
+`/api/ddm/report/v1/tenant/{tenantId}/devices/{id}/channels`. The response envelope
+is `deviceId` + `channels`.
 
-## Device Management Actions — segment candidate: `devices`
+## Device Management Actions — segment **confirmed**: `device-actions`
 
-All write, all gated on `execute:pro:device-actions`. A read-only integration
-returns 403 for every one of these, which is the intended outcome.
+Note the segment is `device-actions`, **not** the documented group name
+`device-management-actions`, which is not hosted.
+
+All write, all gated on `execute:pro:device-actions`. **No route here has ever been
+called**, so the paths below are documentation rather than observation — and
+[JPM-0007](../decisions/JPM-0007-write-path-posture.md) decides that stays true:
+this server is never granted a scope that can erase or unmanage a device. What a
+read-only integration receives for these was never tested and should not be
+assumed.
 
 | | Method | Path |
 |---|---|---|
@@ -148,20 +187,28 @@ returns 403 for every one of these, which is the intended outcome.
 
 Both ride the gateway — per Jamf, "the same APIs many of you are familiar with,
 now brought into the fold," where migrating means changing base URL and auth.
-These are the large legacy surfaces (hundreds of endpoints) and are deliberately
-out of scope for the initial discovery pass. Reference indexes:
+These are the large legacy surfaces (hundreds of endpoints), reached through
+separate segments: the Jamf Pro API at `pro` (`tenant` style, per-resource
+versions) and Classic at `proclassic` (`raw` style, no version). Both are confirmed
+200; neither is individually enumerated here. Routes confirmed under `proclassic`
+are listed in [`gateway-reference.md`](gateway-reference.md). Reference indexes:
 
 - `https://developer.jamf.com/platform-api/reference/jamf-pro-api/llms.txt`
 - `https://developer.jamf.com/platform-api/reference/jamf-pro-classic/llms.txt`
 
 ## Read-surface totals
 
-| Group | GET endpoints |
-|---|---|
-| Compliance Benchmarks | 7 |
-| Blueprints | 5 |
-| Declaration Reporting | 5 |
-| Devices | 4 |
-| Device Groups | 4 |
-| Device Management Actions | 0 |
-| **Total (new APIs)** | **25** |
+Documented GET endpoints, which is not the same as usable ones:
+
+| Group | GET endpoints | usable |
+|---|---|---|
+| Compliance Benchmarks | 7 | **no** — 500 upstream |
+| Blueprints | 5 | yes |
+| Declaration Reporting | 5 | yes |
+| Devices | 4 | yes |
+| Device Groups | 4 | yes |
+| Device Management Actions | 0 | n/a — all write |
+| **Total (new APIs)** | **25** | **18** |
+
+Excludes the Jamf Pro API's 300+ and Classic's 500+, both reachable through
+`platformRequest`.

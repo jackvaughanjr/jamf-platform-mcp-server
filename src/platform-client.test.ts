@@ -66,15 +66,18 @@ describe('buildUrl', () => {
     );
   });
 
+  // The example is Classic's real shape on purpose. An earlier revision used
+  // `/JSSResource/computers`, which is mechanically fine for a verbatim-passthrough
+  // assertion but teaches a path that does not exist on the gateway.
   it('uses rawPath verbatim, with no version or tenant inserted', () => {
-    expect(client.buildUrl({ service: 'pro', rawPath: '/JSSResource/computers' })).toBe(
-      'https://us.apigw.jamf.com/api/pro/JSSResource/computers',
+    expect(client.buildUrl({ service: 'proclassic', rawPath: '/tenant/TENANT/scripts' })).toBe(
+      'https://us.apigw.jamf.com/api/proclassic/tenant/TENANT/scripts',
     );
   });
 
   it('accepts a rawPath without a leading slash', () => {
-    expect(client.buildUrl({ service: 'pro', rawPath: 'JSSResource/computers' })).toBe(
-      'https://us.apigw.jamf.com/api/pro/JSSResource/computers',
+    expect(client.buildUrl({ service: 'proclassic', rawPath: 'tenant/TENANT/scripts' })).toBe(
+      'https://us.apigw.jamf.com/api/proclassic/tenant/TENANT/scripts',
     );
   });
 

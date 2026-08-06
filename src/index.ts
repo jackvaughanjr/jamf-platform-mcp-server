@@ -109,8 +109,11 @@ server.registerTool(
       'The gateway also fronts the Jamf Pro API (300+ endpoints) and Jamf Pro Classic API ' +
       '(500+), so this reaches essentially the whole Jamf surface. ' +
       'Shapes: style "tenant" (default) builds /{version}/tenant/{tenantId}/{resource}; ' +
-      'style "flat" omits the tenant segment; rawPath is used verbatim after /api/{service} ' +
-      'and is required for Classic, which is /JSSResource/{resource} with no version. ' +
+      'style "flat" omits the tenant segment and has never returned 200; rawPath is used ' +
+      'verbatim after /api/{service} and is required for Classic. ' +
+      'Classic is service "proclassic" with rawPath "/tenant/{tenantId}/{resource}" — no ' +
+      'version segment, and no /JSSResource/ prefix, which does not exist on the gateway. ' +
+      'The service segment may be more than one segment: Declaration Reporting is "ddm/report". ' +
       'Jamf Pro versions are per-resource (account-groups v1, enrollment v3, ' +
       'computers-inventory v4) — do not assume v1.',
     inputSchema: {
@@ -119,7 +122,11 @@ server.registerTool(
       rawPath: z
         .string()
         .optional()
-        .describe('Path after /api/{service}, used verbatim, e.g. "/JSSResource/computers"'),
+        .describe(
+          'Path after /api/{service}, used verbatim. Required for Classic, where it is ' +
+            '"/tenant/{tenantId}/{resource}" — e.g. "/tenant/{tenantId}/scripts". Nothing is ' +
+            'inserted, so the tenant segment must be included; a path without it answers 400.',
+        ),
       style: z.enum(['tenant', 'flat']).optional().describe('Path layout; defaults to "tenant"'),
       version: z.string().optional().describe('Version segment, defaults to "v1". Per-resource on Jamf Pro.'),
       method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional().describe('Defaults to GET'),
