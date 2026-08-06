@@ -99,8 +99,8 @@ which supersedes JPM-0005 and explains how the error happened.
 Tools: `getFleetOverview`, `findDevices`, `findOutdatedDevices`, `findDeviceGroups`,
 `getDeviceGroupMembers`, `findExpensiveAutomations`, `getInventoryCollectionSettings`
 and `findCriteriaReferences` (compound), `listBlueprints` (typed), and
-`platformRequest` (authenticated passthrough to any gateway route). Tool count stays
-deliberately small
+`platformRequest` (authenticated **GET-only** passthrough to any gateway route). Tool
+count stays deliberately small
 ([JPM-0003](decisions/JPM-0003-passthrough-plus-selective-typed-tools.md)).
 
 Pagination is confirmed live: a real page-1 request returned different records with
@@ -143,6 +143,13 @@ attributed to a named person and lands in Jamf's audit log.
 is the literal string `false`, so a typo fails closed. The real boundary is what
 the credential's scopes permit, which Jamf enforces — not this code. A fork that
 grants write scopes is making that decision, and owns what follows from it.
+
+`platformRequest` offers no `method` or `body` parameter, so the passthrough cannot
+express a mutation at all — not even with write scopes granted. A passthrough write
+is unreviewable in a way a typed tool's write is not, since method, path and body
+would all be caller-composed with no schema constraining any of them. Any future
+write is a named tool with a narrow schema, so the set of possible mutations stays
+enumerable by reading `src/index.ts`.
 
 Credentials are injected at runtime so the secret never lands on disk:
 
