@@ -59,9 +59,17 @@ fi
 for cmd in curl jq; do
   command -v "$cmd" >/dev/null 2>&1 || die "$cmd is required but not on PATH"
 done
-# DRY_RUN only prints the probe matrix, so it needs no real credentials.
+# DRY_RUN only prints the probe matrix, so it needs no real credentials — and must
+# not USE them when they happen to be present. These are unconditional assignments,
+# not `:=` defaults: the matrix prints every probe URL in full, so a real
+# JAMF_TENANT_ID exported in the caller's shell (or loaded by direnv) was being
+# printed to the terminal by the one command documented as needing no credentials.
+# The masked banner further down showed the intent; the URLs bypassed it. Anyone
+# pasting dry-run output into an issue or a PR would have leaked their tenant id.
 if [ "${DRY_RUN:-}" = "1" ]; then
-  : "${JAMF_CLIENT_ID:=dry-run}" "${JAMF_CLIENT_SECRET:=dry-run}" "${JAMF_TENANT_ID:={TENANT\}}"
+  JAMF_CLIENT_ID=dry-run
+  JAMF_CLIENT_SECRET=dry-run
+  JAMF_TENANT_ID='{TENANT}'
   export JAMF_CLIENT_ID JAMF_CLIENT_SECRET JAMF_TENANT_ID
 fi
 
