@@ -55,6 +55,7 @@ src/
   config.ts             environment validation (zod)
   fleet.ts              pure fleet aggregation — no client, no clock, no I/O
   automations.ts        script/policy auditing: expensive-command scan, policy cadence
+  declaration-scope.ts  pure DDM rollup: one declaration across many devices
   *.test.ts             unit tests (vitest)
 decisions/              architectural decision records, JPM- prefix, immutable
 docs/
@@ -99,7 +100,7 @@ which supersedes JPM-0005 and explains how the error happened.
 Tools: `getFleetOverview`, `findDevices`, `findOutdatedDevices`, `findDeviceGroups`,
 `getDeviceGroupMembers`, `findExpensiveAutomations`, `getInventoryCollectionSettings`
 and `findCriteriaReferences` (compound), `listBlueprints` and
-`getDeviceDeclarationState` (typed), and
+`getDeviceDeclarationState` and `getDeclarationScope` (typed), and
 `platformRequest` (authenticated **GET-only** passthrough to any gateway route). Tool
 count stays deliberately small
 ([JPM-0003](decisions/JPM-0003-passthrough-plus-selective-typed-tools.md)).

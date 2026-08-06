@@ -22,6 +22,7 @@ import {
   type PolicyGeneral,
 } from './automations.js';
 import { loadConfig } from './config.js';
+import { summarizeDeclarationScope } from './declaration-scope.js';
 import {
   enrichGroupMembers,
   looksLikeUuid,
@@ -1064,6 +1065,95 @@ server.registerTool(
               : summary.total === 0
                 ? 'No declarations matched. Either none are deployed to this device, or all of them are still PENDING and therefore excluded by the filter.'
                 : `All ${summary.total} matched declaration(s) report healthy, excluding anything PENDING.`,
+        ...(Object.keys(errors).length > 0 ? { partialFailures: errors } : {}),
+      });
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+/**
+ * Declaration Reporting, the other direction: one declaration across the fleet.
+ *
+ * `getDeviceDeclarationState` answers "is this Mac healthy". This answers "this
+ * declaration — which Macs did it fail on, and why" — the question Jamf Nation
+ * reports the UI cannot answer at all ("there doesn't seem to be any way in the Jamf
+ * Pro UI to see which devices are in different statuses").
+ *
+ * The records carry bare `deviceId` UUIDs, so on their own they answer "how many"
+ * and never "which". The device list is joined in to make the answer actionable, and
+ * a failing leg there degrades identification rather than the whole answer.
+ */
+server.registerTool(
+  'getDeclarationScope',
+  {
+    title: 'Get declaration scope',
+    description:
+      'Report every device reporting a given DDM declaration, with its status, ' +
+      'validity and — for failures — the reasons Jamf gives, grouped so one cause ' +
+      'affecting forty Macs reads as one problem rather than forty. Devices are ' +
+      'resolved to names and serials, since the API returns bare UUIDs. The inverse of ' +
+      'getDeviceDeclarationState. NOTE: Jamf excludes PENDING declarations from any ' +
+      'filtered read and a filter is required, so devices still awaiting delivery are ' +
+      'invisible — an all-healthy answer is NOT proof of full deployment. See ' +
+      'excludedFromThisAnswer in the result.',
+    inputSchema: {
+      declaration: z
+        .string()
+        .min(1)
+        .describe('The declarationIdentifier, e.g. "Blueprint_FileVault". Exact, not a substring.'),
+      filter: z
+        .string()
+        .optional()
+        .describe(
+          'RSQL filter. Jamf requires one, so this defaults to "deviceId==*" (match all). ' +
+            'Allowed fields on THIS route: deviceId, channel, lastReportTime, active, ' +
+            'validityState, declarationType, dateUpdated. Note declarationIdentifier is NOT ' +
+            'among them — it lives in the path here, unlike on getDeviceDeclarationState.',
+        ),
+    },
+  },
+  async ({ declaration, filter }) => {
+    try {
+      // Default is deviceId==*, NOT declarationIdentifier==* as on the per-device
+      // route: the identifier is a path segment here and is not an allowed filter
+      // field, so copying that default across would send an invalid field.
+      const rsql = filter ?? 'deviceId==*';
+      const errors: Record<string, string> = {};
+
+      const [declLeg, deviceLeg] = await Promise.allSettled([
+        // requestAll infers the `size` paging family from the ddm/report segment;
+        // passing page-size here would be ignored and silently cap this at 20.
+        // encodeURIComponent because buildUrl does not escape `resource` — a
+        // declaration identifier containing a slash would otherwise change the route.
+        client.requestAll<DeclarationRecord>({
+          service: 'ddm/report',
+          resource: `declarations/${encodeURIComponent(declaration)}/devices`,
+          query: { filter: rsql },
+        }),
+        client.requestAll<DeviceRecord>({ service: 'devices', resource: 'devices' }),
+      ]);
+
+      if (declLeg.status === 'rejected') {
+        // Same posture as getDeviceDeclarationState: an audit that cannot read its
+        // input must not report a clean bill of health.
+        return asError(
+          new Error(
+            `could not read declaration state for "${declaration}": ${legError(declLeg.reason)}`,
+          ),
+        );
+      }
+      if (deviceLeg.status === 'rejected') errors.devices = legError(deviceLeg.reason);
+
+      const report = summarizeDeclarationScope(
+        declLeg.value,
+        deviceLeg.status === 'fulfilled' ? deviceLeg.value : [],
+        { declarationIdentifier: declaration, filter: rsql },
+      );
+
+      return asContent({
+        ...report,
         ...(Object.keys(errors).length > 0 ? { partialFailures: errors } : {}),
       });
     } catch (error) {
