@@ -376,12 +376,22 @@ describe('summarizeDeclarationScope', () => {
     expect(report.deviceListUnusable).toBe(false);
   });
 
+  // An empty result was first read as "deployed nowhere" against a live tenant, for a
+  // declaration a device was simultaneously confirmed to be reporting as SUCCESSFUL.
+  // The cause was the filter matching nothing, which the verdict did not offer as a
+  // possibility — so the tool stated the one explanation that was false.
   it('refuses to read an empty result as deployed nowhere', () => {
     const report = summarizeDeclarationScope([], devices, { declarationIdentifier: SUBJECT });
     expect(report.rollup.records).toBe(0);
     expect(report.failureGroups).toEqual([]);
     expect(report.verdict).toContain('PENDING');
-    expect(report.verdict).toContain('cannot tell those apart');
+  });
+
+  it('names an unmatched filter as a cause of an empty result, not just deployment', () => {
+    const report = summarizeDeclarationScope([], devices, { declarationIdentifier: SUBJECT });
+    expect(report.verdict).toContain('FILTER MATCHED NOTHING');
+    // The actionable next step must be in the answer, not left to the reader.
+    expect(report.verdict).toContain('known-exact value');
   });
 
   it('never presents an all-healthy answer as fully deployed', () => {

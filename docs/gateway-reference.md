@@ -55,6 +55,30 @@ never tried. It returns 200.
 - **`active: false` co-occurs with `status: SUCCESSFUL`** — 3 of the 9. So `active` is
   not a health signal and must not be summed into a failure count. What distinguishes
   an inactive-but-successful declaration is not yet understood.
+- **RSQL wildcards are field-specific, and a bad filter returns 200 with zero rows.**
+  `filter=declarationIdentifier==*` works on `devices/{id}/declarations` — that is the
+  one field Jamf documents wildcard support for. On
+  `declarations/{identifier}/devices`, `declarationIdentifier` is a path segment and is
+  **not** a filterable field (allowed: `deviceId`, `channel`, `lastReportTime`,
+  `active`, `validityState`, `declarationType`, `dateUpdated`), and
+  `filter=deviceId==*` returned **200 with `results: []`** for a declaration a device
+  was simultaneously confirmed to be reporting as `SUCCESSFUL`. So a wildcard on a
+  field that does not support one apparently compares against the literal `*` and
+  matches nothing, **without erroring**. There is no known match-all filter for this
+  route yet. Treat any empty result here as "filter suspect" until a filter on a
+  known-exact value has been tried.
+- **Declaration identifiers encode their Blueprint.** Observed on one Mac, a mix of
+  three shapes: bare UUIDs; the literal `blueprint-device-groups`; and
+  `Blueprint_{blueprintUuid}_s{n}_c{n}_sys_{cfg|act}{n}` — e.g.
+  `Blueprint_d3c628bd-…_s1_c2_sys_cfg1`. That last shape means a declaration can be
+  traced back to the Blueprint that produced it by parsing the identifier, with `s` and
+  `c` appearing to be step and component index, `sys` the system channel, and
+  `cfg`/`act` the configuration and activation members of the triad. Inferred from one
+  device's naming, not from documentation — do not rely on it without checking more.
+- **`MANAGEMENT`-type declarations were the `active: false` ones.** All three inactive
+  declarations on the sampled Mac were `MANAGEMENT`, and all three `CONFIGURATION` and
+  `ACTIVATION` ones were active. One device is not a pattern, but it is the first hint
+  at what `active` distinguishes.
 - **Multi-page traversal remains unverified.** `totalCount` was 9 against a default
   `size` of 20, so exactly one page was fetched. The `size` parameter reached the
   gateway and was accepted, but nothing has yet proved page 2 behaves — that needs a
