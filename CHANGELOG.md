@@ -12,6 +12,48 @@ guarantee.
 
 Nothing yet.
 
+## [0.2.1] — 2026-08-06
+
+Corrections only. Every change here fixes a claim the project had already
+retracted elsewhere but was still publishing as fact.
+
+### Fixed
+
+- **`platformRequest` described Jamf Pro Classic as `/JSSResource/{resource}`** — a
+  path shape that does not exist on the gateway at all, retracted by
+  [JPM-0006](decisions/JPM-0006-classic-and-declaration-reporting-are-supported.md)
+  the day before. A tool description is the instruction a model reads before
+  reaching Classic, so the error steered callers straight into a 404. Classic is
+  service `proclassic` with `rawPath` `/tenant/{tenantId}/{resource}` and no
+  version segment. The same claim was corrected in two `src/platform-client.ts`
+  comments and in the `buildUrl` tests, which used it as their worked example — a
+  test is documentation, so a wrong example teaches.
+- **`rawPath` now documents that nothing is inserted**, so the caller must supply
+  the tenant segment itself. A path without one answers 400
+  `REQUEST_CONTEXT_NOT_PROVIDED`.
+- **`docs/endpoint-inventory.md` was a pre-JPM-0006 artefact linked from the README
+  as current reference.** It still asserted that `pro` is an umbrella serving
+  Classic and Declaration Reporting, that Compliance Benchmarks is the only `flat`
+  group, and that three now-confirmed groups were unresolved. Corrected in place
+  with the retractions kept visible, and headed with a pointer to
+  `docs/gateway-reference.md` as the authority for observed behaviour. Its Device
+  Management Actions section no longer claims a read-only integration receives 403
+  for those routes — that was never tested, and per JPM-0007 it never will be.
+
+### Added
+
+- [JPM-0007](decisions/JPM-0007-write-path-posture.md) — the write-path posture. No
+  read-write integration is provisioned; scopes that can erase or unmanage a device
+  are never granted to this server in any configuration; reversible writes, if ever
+  enabled, go through typed tools rather than the passthrough, because a passthrough
+  write is unreviewable. Records the corollary JPM-0001 left implicit: credential
+  scoping is only a boundary while the credential lacks the scope.
+
+### Changed
+
+- `actions/checkout` and `actions/setup-node` bumped to `@v5`. The `@v4` pins target
+  the deprecated Node 20 and were already being forced onto Node 24 by the runner.
+
 ## [0.2.0] — 2026-08-05
 
 ### Added

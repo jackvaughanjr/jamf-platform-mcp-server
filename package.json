@@ -1,6 +1,6 @@
 {
   "name": "jamf-platform-mcp-server",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "MCP server for the Jamf Platform API Gateway, using OAuth 2.0 client-credentials authentication",
   "type": "module",
   "main": "dist/index.js",
