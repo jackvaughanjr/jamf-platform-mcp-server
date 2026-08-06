@@ -12,9 +12,15 @@ Two shapes have returned 200. Both put the tenant in the path; nothing without i
 has ever worked.
 
 ```
-{base}/api/{service}/{version}/tenant/{tenantId}/{resource}    most groups
-{base}/api/proclassic/tenant/{tenantId}/{resource}             Classic — NO version
+{base}/api/{service}/{version}/tenant/{tenantId}/{resource}    most groups   → style 'tenant'
+{base}/api/proclassic/tenant/{tenantId}/{resource}             Classic       → style 'classic'
 ```
+
+Both shapes are built by `buildUrl` from `resource`, which fills the tenant in from
+config. Expressing Classic through `rawPath` instead means interpolating the tenant by
+hand, and a caller that does not have it emits `/tenant//{resource}` — answered with
+**400 `REQUEST_CONTEXT_NOT_PROVIDED`**, which describes a missing token context and says
+nothing about an empty variable. Prefer `style: 'classic'`.
 
 `{service}` may be **more than one segment**: Declaration Reporting is served at
 `/api/ddm/report/`. Anything that assumes a single segment will miss it.

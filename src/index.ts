@@ -122,9 +122,10 @@ server.registerTool(
       '(500+), so this reaches essentially the whole Jamf surface. ' +
       'Shapes: style "tenant" (default) builds /{version}/tenant/{tenantId}/{resource}; ' +
       'style "flat" omits the tenant segment and has never returned 200; rawPath is used ' +
-      'verbatim after /api/{service} and is required for Classic. ' +
-      'Classic is service "proclassic" with rawPath "/tenant/{tenantId}/{resource}" — no ' +
-      'version segment, and no /JSSResource/ prefix, which does not exist on the gateway. ' +
+      'verbatim after /api/{service}. ' +
+      'For Classic use service "proclassic" with style "classic", which builds ' +
+      '/tenant/{tenantId}/{resource} — no version segment, tenant filled in automatically, and ' +
+      'no /JSSResource/ prefix, which does not exist on the gateway. ' +
       'The service segment may be more than one segment: Declaration Reporting is "ddm/report". ' +
       'Jamf Pro versions are per-resource (account-groups v1, enrollment v3, ' +
       'computers-inventory v4) — do not assume v1. ' +
@@ -143,7 +144,14 @@ server.registerTool(
             '"/tenant/{tenantId}/{resource}" — e.g. "/tenant/{tenantId}/scripts". Nothing is ' +
             'inserted, so the tenant segment must be included; a path without it answers 400.',
         ),
-      style: z.enum(['tenant', 'flat']).optional().describe('Path layout; defaults to "tenant"'),
+      style: z
+        .enum(['tenant', 'classic', 'flat'])
+        .optional()
+        .describe(
+          'Path layout; defaults to "tenant". Use "classic" for Jamf Pro Classic — it builds ' +
+            '/tenant/{tenantId}/{resource} with no version segment and fills the tenant in for ' +
+            'you, so prefer it over rawPath, which requires you to know the tenant id.',
+        ),
       version: z.string().optional().describe('Version segment, defaults to "v1". Per-resource on Jamf Pro.'),
       query: z.record(z.string(), z.string()).optional().describe('Query string parameters'),
     },

@@ -49,6 +49,12 @@ export interface RequestOptions {
    * Path layout. `tenant` (default) is `/{version}/tenant/{tenantId}/{resource}`
    * and is the ONLY layout ever observed to return 200.
    *
+   * `classic` is `/tenant/{tenantId}/{resource}` with NO version segment, which is
+   * Jamf Pro Classic's shape. It exists so a caller never has to know the tenant id:
+   * expressing Classic through `rawPath` means interpolating the tenant by hand, and a
+   * caller that does not have it produces `/tenant//resource` and a 400 that names
+   * REQUEST_CONTEXT_NOT_PROVIDED without hinting that a variable was empty.
+   *
    * `flat` omits the tenant segment because some documented paths show none
    * (Declaration Reporting is published as `/v1/devices/{deviceId}/declarations`).
    * It has never worked. Every flat request — including one to a route that
@@ -59,7 +65,7 @@ export interface RequestOptions {
    * hints the token could be bound to a tenant at issue time — untested.
    * Prefer `tenant`.
    */
-  style?: 'tenant' | 'flat';
+  style?: 'tenant' | 'flat' | 'classic';
   /**
    * API version segment, defaults to "v1".
    *
@@ -247,6 +253,7 @@ export class JamfPlatformClient {
    * Builds a gateway URL. Three shapes are reachable:
    *
    *   style 'tenant' (default)  /api/{service}/{version}/tenant/{tenantId}/{resource}
+   *   style 'classic'           /api/{service}/tenant/{tenantId}/{resource}   (no version)
    *   style 'flat'              /api/{service}/{version}/{resource}
    *   rawPath                   /api/{service}{rawPath}          (verbatim)
    *
@@ -266,9 +273,11 @@ export class JamfPlatformClient {
       const version = options.version ?? 'v1';
       const resource = options.resource.replace(/^\/+/, '');
       suffix =
-        options.style === 'flat'
-          ? `/${version}/${resource}`
-          : `/${version}/tenant/${this.config.tenantId}/${resource}`;
+        options.style === 'classic'
+          ? `/tenant/${this.config.tenantId}/${resource}`
+          : options.style === 'flat'
+            ? `/${version}/${resource}`
+            : `/${version}/tenant/${this.config.tenantId}/${resource}`;
     }
 
     const url = new URL(`${this.config.gatewayBaseUrl}/api/${options.service}${suffix}`);

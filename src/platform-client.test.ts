@@ -72,6 +72,22 @@ describe('buildUrl', () => {
     ).toBe('https://us.apigw.jamf.com/api/pro/v4/tenant/TENANT/computers-inventory');
   });
 
+  // Classic has no version segment, and expressing that through rawPath means the
+  // caller interpolating the tenant id by hand. A caller without it produces
+  // `/tenant//resource` and a 400 REQUEST_CONTEXT_NOT_PROVIDED that says nothing about
+  // an empty variable — which is exactly how this was found.
+  it('builds classic style with the tenant filled in and no version segment', () => {
+    expect(
+      client.buildUrl({ service: 'proclassic', resource: 'computergroups/id/41', style: 'classic' }),
+    ).toBe('https://us.apigw.jamf.com/api/proclassic/tenant/TENANT/computergroups/id/41');
+  });
+
+  it('ignores an explicit version on classic style, which has no version segment', () => {
+    expect(
+      client.buildUrl({ service: 'proclassic', resource: 'scripts', style: 'classic', version: 'v3' }),
+    ).toBe('https://us.apigw.jamf.com/api/proclassic/tenant/TENANT/scripts');
+  });
+
   it('omits the tenant segment for flat style', () => {
     expect(client.buildUrl({ service: 'pro', resource: 'device-declarations', style: 'flat' })).toBe(
       'https://us.apigw.jamf.com/api/pro/v1/device-declarations',

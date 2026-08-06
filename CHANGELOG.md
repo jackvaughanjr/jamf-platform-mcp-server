@@ -51,6 +51,13 @@ for a search term that could never have matched.
   Devices are resolved from bare UUIDs to names and serials. The default filter is
   `deviceId==*`, since `declarationIdentifier` is a path segment on this route and not
   an allowed filter field.
+- **`style: 'classic'` on `platformRequest` and `buildUrl`** — builds
+  `/tenant/{tenantId}/{resource}` with no version segment and fills the tenant in from
+  config, so reaching Jamf Pro Classic no longer requires the caller to know the tenant
+  id. Previously Classic was expressible only through `rawPath`, which meant
+  interpolating the tenant by hand; supplying an empty one produces `/tenant//{resource}`
+  and a 400 `REQUEST_CONTEXT_NOT_PROVIDED` whose message describes missing token context
+  and gives no hint that a variable was blank.
 - **`getDeviceDeclarationState`** — the first typed tool for Declaration Reporting,
   and the companion to `listBlueprints`: a Blueprint deploys declarations, and this
   reports whether they landed. Resolves a device by UUID or by a substring of name,
