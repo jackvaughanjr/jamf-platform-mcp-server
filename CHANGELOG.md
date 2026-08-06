@@ -96,6 +96,17 @@ for a search term that could never have matched.
 
 ### Fixed
 
+- **`getDeclarationScope`'s default filter matched nothing.** It defaulted to
+  `deviceId==*`, which returned **200 with an empty result** for a declaration a device
+  was simultaneously confirmed to be reporting as `SUCCESSFUL`. Jamf documents wildcard
+  support for `declarationIdentifier` only — a path segment rather than a filterable
+  field on that route — so a wildcard on `deviceId` compares UUIDs against a literal
+  `*` and matches nothing without erroring. Settled by experiment: an exact `deviceId`
+  returned its record, and `active==true,active==false` returned all 35 devices, which
+  is now the default. `channel==SYSTEM` returns the same rows on a tenant with no
+  user-channel records and was rejected as the default for exactly that reason. The
+  empty-result verdict now names an unmatched filter as one of three indistinguishable
+  causes and gives the filter to retry with.
 - **`getDeviceDeclarationState` reported how many declarations a device had but never
   which.** On a healthy device the whole answer was counts — `total`, `byStatus`,
   `byType` — with identifiers appearing only inside `failed[]`, which is empty when

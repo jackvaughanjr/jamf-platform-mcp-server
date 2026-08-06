@@ -55,18 +55,38 @@ never tried. It returns 200.
 - **`active: false` co-occurs with `status: SUCCESSFUL`** — 3 of the 9. So `active` is
   not a health signal and must not be summed into a failure count. What distinguishes
   an inactive-but-successful declaration is not yet understood.
-- **RSQL wildcards are field-specific, and a bad filter returns 200 with zero rows.**
-  `filter=declarationIdentifier==*` works on `devices/{id}/declarations` — that is the
-  one field Jamf documents wildcard support for. On
-  `declarations/{identifier}/devices`, `declarationIdentifier` is a path segment and is
-  **not** a filterable field (allowed: `deviceId`, `channel`, `lastReportTime`,
-  `active`, `validityState`, `declarationType`, `dateUpdated`), and
-  `filter=deviceId==*` returned **200 with `results: []`** for a declaration a device
-  was simultaneously confirmed to be reporting as `SUCCESSFUL`. So a wildcard on a
-  field that does not support one apparently compares against the literal `*` and
-  matches nothing, **without erroring**. There is no known match-all filter for this
-  route yet. Treat any empty result here as "filter suspect" until a filter on a
-  known-exact value has been tried.
+- **RSQL wildcards are field-specific, and an unsupported one returns 200 with zero
+  rows.** Settled by experiment on `declarations/{identifier}/devices`:
+
+  | filter | result |
+  |---|---|
+  | `deviceId==*` | **200, `results: []`** — silently matches nothing |
+  | `deviceId=={a known uuid}` | 1 record — the route itself is fine |
+  | `active==true,active==false` | 35 records — **the working match-all** |
+  | `channel==SYSTEM` | the same 35 on this tenant |
+
+  `filter=declarationIdentifier==*` works on `devices/{id}/declarations` because that is
+  the one field Jamf documents wildcard support for. On this route
+  `declarationIdentifier` is a path segment and **not** a filterable field (allowed:
+  `deviceId`, `channel`, `lastReportTime`, `active`, `validityState`,
+  `declarationType`, `dateUpdated`), so `deviceId==*` compares UUIDs against a literal
+  `*` and matches nothing **without erroring**. The empty result is indistinguishable
+  from a real absence, which is what makes it dangerous.
+
+  **Use `active==true,active==false`** — an OR across every value a boolean can hold.
+  `channel==SYSTEM` returns the same rows here only because this tenant has no
+  user-channel records for the declaration tested; it would silently hide them on a
+  tenant that does, so it is not a match-all. Caveat on the recommended filter: a row
+  where `active` is absent rather than true or false falls outside both arms. Not
+  observed, and no filter avoiding the problem is known.
+
+- **Either `size` is honoured or paging works — at least one, not yet which.** A
+  declaration with 35 device records returned all 35 while `requestAll` sends
+  `size=100`. If `size` were ignored the gateway would have applied its default of 20
+  and `requestAll` would have fetched a second page to reach `totalCount`; either way
+  the answer is complete. So the result is inconsistent with "`size` ignored **and**
+  paging broken", but it does not distinguish the two. Proving multi-page traversal
+  specifically still needs a call where `totalCount` exceeds the `size` actually sent.
 - **Declaration identifiers encode their Blueprint.** Observed on one Mac, a mix of
   three shapes: bare UUIDs; the literal `blueprint-device-groups`; and
   `Blueprint_{blueprintUuid}_s{n}_c{n}_sys_{cfg|act}{n}` — e.g.
@@ -79,10 +99,8 @@ never tried. It returns 200.
   declarations on the sampled Mac were `MANAGEMENT`, and all three `CONFIGURATION` and
   `ACTIVATION` ones were active. One device is not a pattern, but it is the first hint
   at what `active` distinguishes.
-- **Multi-page traversal remains unverified.** `totalCount` was 9 against a default
-  `size` of 20, so exactly one page was fetched. The `size` parameter reached the
-  gateway and was accepted, but nothing has yet proved page 2 behaves — that needs a
-  device with more than 20 declarations.
+- **Multi-page traversal remains unproven.** See the `size` note above: the largest
+  result seen (35 records) still fits inside the `size=100` that `requestAll` sends.
 
 **Compliance Benchmarks:** path is correct —
 `/api/compliance-benchmarks/v1/tenant/{t}/benchmarks`, as documented — but returns

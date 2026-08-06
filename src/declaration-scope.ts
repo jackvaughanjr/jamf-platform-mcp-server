@@ -452,14 +452,13 @@ export function summarizeDeclarationScope(
       'that this declaration reports against devices outside the fleet.'
     : rollup.records === 0
       ? 'No device reports this declaration under this filter. THREE causes are ' +
-        'indistinguishable here, and the third is the most likely: (1) it is deployed ' +
-        'nowhere; (2) every target is still PENDING and therefore excluded; (3) THE ' +
-        'FILTER MATCHED NOTHING. Jamf documents wildcard support for ' +
-        'declarationIdentifier only — which is not a filterable field on this route — ' +
-        'so a wildcard on any other field may compare against a literal "*" and match ' +
-        'no rows while still returning 200. Before believing this result, re-run with ' +
-        'a filter on a known-exact value, e.g. the deviceId of a device you have ' +
-        'already confirmed reports this declaration.'
+        'indistinguishable here: (1) it is deployed nowhere; (2) every target is still ' +
+        'PENDING and therefore excluded; (3) THE FILTER MATCHED NOTHING. Rule out (3) ' +
+        'first — a wildcard such as "deviceId==*" matches no rows and still returns ' +
+        '200, because wildcards work only on declarationIdentifier, which is not a ' +
+        'filterable field on this route. A filter confirmed to match everything is ' +
+        '"active==true,active==false". If that also returns nothing, the declaration ' +
+        'genuinely reaches no device that has reported yet.'
       : rollup.failedDevices > 0
         ? `${rollup.failedDevices} of ${rollup.devices} device(s) report this declaration ` +
           `as failed or invalid, in ${failureGroups.length} distinct failure pattern(s) — ` +

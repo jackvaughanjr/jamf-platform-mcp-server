@@ -390,8 +390,9 @@ describe('summarizeDeclarationScope', () => {
   it('names an unmatched filter as a cause of an empty result, not just deployment', () => {
     const report = summarizeDeclarationScope([], devices, { declarationIdentifier: SUBJECT });
     expect(report.verdict).toContain('FILTER MATCHED NOTHING');
-    // The actionable next step must be in the answer, not left to the reader.
-    expect(report.verdict).toContain('known-exact value');
+    // The actionable next step must be in the answer, not left to the reader — and it
+    // must name the filter confirmed to work, since that is what settles the ambiguity.
+    expect(report.verdict).toContain('active==true,active==false');
   });
 
   it('never presents an all-healthy answer as fully deployed', () => {

@@ -1118,7 +1118,11 @@ server.registerTool(
         .string()
         .optional()
         .describe(
-          'RSQL filter. Jamf requires one, so this defaults to "deviceId==*" (match all). ' +
+          'RSQL filter. Jamf requires one, so this defaults to "active==true,active==false" — ' +
+            'an OR across both boolean values, which is the nearest thing to a match-all this ' +
+            'route has. Do NOT use a wildcard like "deviceId==*": wildcards are supported only ' +
+            'on declarationIdentifier, which is not filterable here, so that matches nothing ' +
+            'and still returns 200. ' +
             'Allowed fields on THIS route: deviceId, channel, lastReportTime, active, ' +
             'validityState, declarationType, dateUpdated. Note declarationIdentifier is NOT ' +
             'among them — it lives in the path here, unlike on getDeviceDeclarationState.',
@@ -1127,10 +1131,24 @@ server.registerTool(
   },
   async ({ declaration, filter }) => {
     try {
-      // Default is deviceId==*, NOT declarationIdentifier==* as on the per-device
-      // route: the identifier is a path segment here and is not an allowed filter
-      // field, so copying that default across would send an invalid field.
-      const rsql = filter ?? 'deviceId==*';
+      // `active==true,active==false` is an RSQL OR across every value a boolean can
+      // hold, which is the closest thing to a match-all this route has. It was found
+      // by experiment, not documentation.
+      //
+      // It replaces `deviceId==*`, which returned 200 with ZERO rows for a declaration
+      // a device was simultaneously confirmed to be reporting as SUCCESSFUL. Jamf
+      // documents wildcard support for `declarationIdentifier` only — a field that is a
+      // path segment here rather than a filterable one — so a wildcard on `deviceId`
+      // compares UUIDs against a literal "*" and matches nothing, without erroring.
+      //
+      // `channel==SYSTEM` returns the same rows on a tenant with no user-channel
+      // records, and was rejected as the default precisely because it would silently
+      // hide them on a tenant that has them.
+      //
+      // Caveat: if `active` is ever absent rather than true or false, those rows fall
+      // outside both arms of the OR. Unobserved so far, and no filter that avoids the
+      // problem is known.
+      const rsql = filter ?? 'active==true,active==false';
       const errors: Record<string, string> = {};
 
       const [declLeg, deviceLeg] = await Promise.allSettled([
