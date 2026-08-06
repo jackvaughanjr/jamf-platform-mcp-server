@@ -48,8 +48,12 @@ export const BOUNDED_FIND_MAX_DEPTH = 3;
  *
  * Two negative lookaheads, both deliberate:
  *
- * - `(?!\S*\bnull\b)` is pre-existing and stays: it keeps `find /dev/null` and
- *   redirect-shaped noise out of the results.
+ * - `(?!\S*\bnull\b)` is pre-existing and stays, but it does less than it was once
+ *   described as doing. `\S*` cannot cross whitespace, so it only suppresses a match
+ *   when `null` is inside the token immediately after `find /` — i.e. `find /dev/null`.
+ *   A redirect like `find / -type f > /dev/null` is still flagged, which is correct:
+ *   the walk is real regardless of where its output goes. The earlier rationale
+ *   ("so `> /dev/null` does not match") described behaviour this regex never had.
  * - the `-maxdepth` lookahead is scoped to `[^;|&\n]*` rather than the whole line,
  *   so a bound belonging to a *different* command cannot excuse this one. On
  *   `find / -type f; find /Users -maxdepth 1` the first walk is still flagged.
@@ -237,10 +241,42 @@ export interface CustomSearchPathEscalation {
   category: SearchPathCategory;
   /** How many custom search paths that category has — each one is an extra walk. */
   customSearchPaths: number;
+  /**
+   * The configured paths themselves.
+   *
+   * The escalation to `high` is inferred from the COUNT, not from measuring any walk,
+   * so it can be a false alarm: three paths pointing at small directories are cheap,
+   * while one pointing at a data volume is not. Reporting the values makes the rating
+   * checkable instead of something to take on trust. An entry whose shape cannot be
+   * read is named as such rather than dropped, so the list length always matches
+   * `customSearchPaths`.
+   */
+  paths: string[];
   from: InventoryCostFinding['cost'];
   to: InventoryCostFinding['cost'];
   /** Whether the option is actually on; a rating applies to the option either way. */
   enabled: boolean;
+}
+
+/**
+ * Pulls displayable path strings out of a custom-search-path array.
+ *
+ * The gateway types these as `unknown[]` because the shape was never pinned down:
+ * Classic returns objects carrying a `path`, but a bare string is plausible too. This
+ * is supplementary evidence for a rating rather than the rating itself, so an
+ * unreadable entry is labelled rather than thrown on — unlike `extractClassicList`,
+ * where an unreadable shape means the whole answer is untrustworthy.
+ */
+function searchPathValues(entries: unknown[] | undefined): string[] {
+  if (!Array.isArray(entries)) return [];
+  return entries.map((entry) => {
+    if (typeof entry === 'string') return entry;
+    if (entry && typeof entry === 'object') {
+      const path = (entry as { path?: unknown }).path;
+      if (typeof path === 'string' && path !== '') return path;
+    }
+    return '(unreadable entry)';
+  });
 }
 
 /**
@@ -370,6 +406,7 @@ export function assessInventoryCollection(settings: InventoryCollectionSettings 
       setting: finding.setting,
       category,
       customSearchPaths: count,
+      paths: searchPathValues(settings?.[category]),
       from: finding.cost,
       to: 'high',
       enabled: finding.enabled,
@@ -613,6 +650,48 @@ export function findCriterionMatches(
     });
   }
   return matches;
+}
+
+/**
+ * Runs `findCriterionMatches` across every term and de-duplicates the result.
+ *
+ * Sweeping an alias set means one criterion can match more than one term — a
+ * "Packages Installed" criterion matches both that and the broader "Application" —
+ * and counting it twice would inflate the reference count that decides whether an
+ * inventory field is load-bearing. Identity is the criterion, its value and what it
+ * matched on; the term that found it is deliberately not part of the key, since the
+ * same finding reached by two routes is still one finding.
+ *
+ * Lives here rather than in the tool handler because it is pure and therefore
+ * testable without a tenant.
+ */
+export function sweepCriterionMatches(
+  criteria: JamfCriterion[] | null | undefined,
+  terms: readonly string[],
+): CriterionMatch[] {
+  const seen = new Set<string>();
+  const out: CriterionMatch[] = [];
+  for (const term of terms) {
+    for (const match of findCriterionMatches(criteria, term)) {
+      const key = `${match.criterion}|${match.value ?? ''}|${match.matchedOn}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(match);
+    }
+  }
+  return out;
+}
+
+/** Sweeps display fields across every term, de-duplicated by field name. */
+export function sweepDisplayFieldMatches(
+  displayFields: Array<{ name?: string }> | null | undefined,
+  terms: readonly string[],
+): string[] {
+  const seen = new Set<string>();
+  for (const term of terms) {
+    for (const name of findDisplayFieldMatches(displayFields, term)) seen.add(name);
+  }
+  return [...seen];
 }
 
 /**

@@ -8,12 +8,15 @@ import { z } from 'zod';
 import {
   assessInventoryCollection,
   classifyPolicyCadence,
+  expandInventoryQuery,
   extractClassicDetail,
   extractClassicList,
   findCriterionMatches,
   findDisplayFieldMatches,
   mapWithConcurrency,
   scanForExpensiveCommands,
+  sweepCriterionMatches,
+  sweepDisplayFieldMatches,
   type InventoryCollectionSettings,
   type JamfCriterion,
   type PolicyGeneral,
@@ -713,12 +716,24 @@ server.registerTool(
         );
       }
       const assessment = assessInventoryCollection(settings);
+      // Escalations are called out separately from settings that are high by nature.
+      // "High" for a custom search path is inferred from the path COUNT, not from
+      // measuring the walk, so it can be a false alarm — a path pointing at one small
+      // directory is cheap. `paths` carries the actual values so the rating can be
+      // checked rather than taken on trust.
+      const escalated = assessment.escalatedForCustomSearchPaths;
       return asContent({
         ...assessment,
         note:
           assessment.enabledHighCost.length > 0
             ? 'A high-cost option is enabled. Multiply its cost by how often inventory runs — ' +
-              'check for a policy that updates inventory on every check-in.'
+              'check for a policy that updates inventory on every check-in.' +
+              (escalated.length > 0
+                ? ` ${escalated.length} of these was rated high because it has custom search ` +
+                  'paths, which is inferred from the path count rather than measured — see ' +
+                  'escalatedForCustomSearchPaths.paths and judge whether those directories are ' +
+                  'actually large before acting on it.'
+                : '')
             : 'No high-cost collection option is enabled; look at extension attributes and ' +
               'policy cadence instead.',
       });
@@ -761,6 +776,13 @@ server.registerTool(
   async ({ query, concurrency }) => {
     const parallel = concurrency ?? 6;
     const errors: Record<string, string> = {};
+
+    // The literal query is not enough. Jamf's inventory-collection setting keys are
+    // not its criterion names — `package_receipts` is queried as "Packages Installed"
+    // and "Cached Packages", which share no substring with the key — so searching the
+    // key alone returns zero whether or not consumers exist. That zero reads as
+    // permission to disable a field something depends on.
+    const expansion = expandInventoryQuery(query);
 
     async function classicList2<T>(resource: string, keys: string[]): Promise<T[]> {
       const body = await client.request<Record<string, unknown>>({
@@ -805,7 +827,7 @@ server.registerTool(
           // the coverage of this search.
           if (!group?.is_smart) return null;
           smartGroupCount += 1;
-          const matches = findCriterionMatches(group.criteria, query);
+          const matches = sweepCriterionMatches(group.criteria, expansion.terms);
           return matches.length > 0 ? { id: stub.id, name: group.name ?? stub.name, matches } : null;
         } catch (error) {
           errors[`computerGroup:${stub.id}`] = legError(error);
@@ -827,8 +849,8 @@ server.registerTool(
                 display_fields?: Array<{ name?: string }>;
               }>(b, ['advanced_computer_search']),
             );
-          const criteriaMatches = findCriterionMatches(search?.criteria, query);
-          const displayFieldMatches = findDisplayFieldMatches(search?.display_fields, query);
+          const criteriaMatches = sweepCriterionMatches(search?.criteria, expansion.terms);
+          const displayFieldMatches = sweepDisplayFieldMatches(search?.display_fields, expansion.terms);
           if (criteriaMatches.length === 0 && displayFieldMatches.length === 0) return null;
           return { id: stub.id, name: search?.name ?? stub.name, criteriaMatches, displayFieldMatches };
         } catch (error) {
@@ -841,8 +863,18 @@ server.registerTool(
       const advancedSearches = searchHits.filter((s): s is NonNullable<typeof s> => s !== null);
       const total = smartGroups.length + advancedSearches.length;
 
+      const swept =
+        expansion.terms.length > 1
+          ? expansion.terms.map((t) => `"${t}"`).join(', ')
+          : `"${query}"`;
+
       return asContent({
         query,
+        // What was actually swept, not just what was asked for — a zero result is
+        // only as strong as the terms behind it, so they belong in the answer.
+        termsSwept: expansion.terms,
+        ...(expansion.matchedSettingKey ? { matchedSettingKey: expansion.matchedSettingKey } : {}),
+        ...(expansion.aliases.length > 0 ? { aliasesUsed: expansion.aliases } : {}),
         scanned: {
           computerGroups: groupStubs.length,
           ofWhichSmart: smartGroupCount,
@@ -859,11 +891,15 @@ server.registerTool(
           'mobile device groups and searches (irrelevant for computer inventory fields)',
           'static group membership, which has no criteria to search',
           'exports or spreadsheets maintained outside Jamf',
+          'Jamf criterion labels this alias map does not know about',
         ],
         verdict:
           total === 0
-            ? `No smart group or advanced search references "${query}". That is good evidence it is unused, but see notChecked before treating it as proof.`
-            : `${total} object(s) reference "${query}" — review them before disabling the underlying collection.`,
+            ? `No smart group or advanced search references ${swept}. That is good evidence it is unused, but see notChecked before treating it as proof.` +
+              (expansion.hasUnconfirmedAliases
+                ? ' Weaker than usual here: some terms swept are broad-substring fallbacks whose exact Jamf criterion labels are unverified, so a miss could mean the label differs rather than that nothing consumes the field.'
+                : '')
+            : `${total} object(s) reference ${swept} — review them before disabling the underlying collection.`,
         ...(Object.keys(errors).length > 0 ? { partialFailures: errors } : {}),
       });
     } catch (error) {

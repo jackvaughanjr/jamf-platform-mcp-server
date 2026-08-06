@@ -12,6 +12,8 @@ import {
   INVENTORY_SETTING_CRITERION_ALIASES,
   mapWithConcurrency,
   scanForExpensiveCommands,
+  sweepCriterionMatches,
+  sweepDisplayFieldMatches,
 } from './automations.js';
 
 describe('scanForExpensiveCommands', () => {
@@ -259,7 +261,10 @@ describe('assessInventoryCollection', () => {
   // The live-tenant case: 3 custom application search paths, still rated low, with a
   // `why` that named the very thing it was ignoring.
   it('escalates application collection above low when custom search paths exist, and states the count', () => {
-    const a = assessInventoryCollection({ include_applications: true, applications: [{}, {}, {}] });
+    const a = assessInventoryCollection({
+      include_applications: true,
+      applications: [{ path: '/opt/tools' }, { path: '/srv/apps' }, { path: '/data/vol' }],
+    });
     const finding = a.findings.find((f) => f.setting.includes('include_applications'));
     expect(finding?.cost).not.toBe('low');
     expect(finding?.cost).toBe('high');
@@ -269,11 +274,35 @@ describe('assessInventoryCollection', () => {
         setting: 'inclue_applications / include_applications',
         category: 'applications',
         customSearchPaths: 3,
+        paths: ['/opt/tools', '/srv/apps', '/data/vol'],
         from: 'low',
         to: 'high',
         enabled: true,
       },
     ]);
+  });
+
+  // The escalation to high is inferred from the path COUNT, never from measuring a
+  // walk, so the paths themselves are what makes the rating checkable rather than
+  // something to take on trust.
+  it('reports the configured paths alongside the count that triggered the escalation', () => {
+    const a = assessInventoryCollection({
+      include_fonts: true,
+      fonts: ['/Library/Fonts/Vendor', { path: '/srv/fonts' }],
+    });
+    expect(a.escalatedForCustomSearchPaths[0]?.paths).toEqual(['/Library/Fonts/Vendor', '/srv/fonts']);
+  });
+
+  // Supplementary evidence, not the answer — so an unreadable entry is labelled
+  // rather than dropped, keeping paths.length equal to the count it explains.
+  it('labels an unreadable path entry rather than dropping it', () => {
+    const a = assessInventoryCollection({
+      include_plugins: true,
+      plugins: [{ path: '/srv/plugins' }, { nope: 1 }, 42],
+    });
+    const escalation = a.escalatedForCustomSearchPaths[0];
+    expect(escalation?.paths).toEqual(['/srv/plugins', '(unreadable entry)', '(unreadable entry)']);
+    expect(escalation?.paths).toHaveLength(escalation?.customSearchPaths ?? -1);
   });
 
   it('leaves application collection at low when it uses only the default path', () => {
@@ -325,6 +354,53 @@ describe('assessInventoryCollection', () => {
     const highAndEnabled = a.findings.filter((f) => f.enabled && f.cost === 'high').map((f) => f.setting);
     expect(a.enabledHighCost).toEqual(highAndEnabled);
     expect(a.enabledHighCost).toHaveLength(2);
+  });
+});
+
+// Sweeping an alias set is what makes findCriteriaReferences trustworthy, and
+// double-counting is what would make it lie in the other direction — an inflated
+// reference count reads as "this field is load-bearing" when it may not be.
+describe('sweepCriterionMatches', () => {
+  const criteria = [
+    { name: 'Packages Installed', search_type: 'has', value: 'Xcode' },
+    { name: 'Application Title', search_type: 'is', value: 'Safari' },
+  ];
+
+  it('counts a criterion once even when several terms match it', () => {
+    // "Packages Installed" contains both "Package" and "Installed".
+    const swept = sweepCriterionMatches(criteria, ['Package', 'Installed', 'Packages Installed']);
+    expect(swept).toHaveLength(1);
+    expect(swept[0]?.criterion).toBe('Packages Installed');
+  });
+
+  it('still returns distinct criteria found by different terms', () => {
+    const swept = sweepCriterionMatches(criteria, ['Package', 'Application']);
+    expect(swept.map((m) => m.criterion)).toEqual(['Packages Installed', 'Application Title']);
+  });
+
+  it('finds a criterion no single-term search would have found', () => {
+    // The whole point of the alias map: the setting key matches nothing.
+    expect(sweepCriterionMatches(criteria, ['package_receipts'])).toHaveLength(0);
+    expect(sweepCriterionMatches(criteria, ['package_receipts', 'Packages Installed'])).toHaveLength(1);
+  });
+
+  it('returns nothing for no terms, rather than everything', () => {
+    expect(sweepCriterionMatches(criteria, [])).toEqual([]);
+  });
+});
+
+describe('sweepDisplayFieldMatches', () => {
+  const fields = [{ name: 'Packages Installed' }, { name: 'Application Title' }];
+
+  it('de-duplicates a field matched by more than one term', () => {
+    expect(sweepDisplayFieldMatches(fields, ['Package', 'Installed'])).toEqual(['Packages Installed']);
+  });
+
+  it('accumulates fields across terms', () => {
+    expect(sweepDisplayFieldMatches(fields, ['Package', 'Application'])).toEqual([
+      'Packages Installed',
+      'Application Title',
+    ]);
   });
 });
 
