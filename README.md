@@ -60,6 +60,7 @@ src/
   *.test.ts             unit tests (vitest)
 decisions/              architectural decision records, JPM- prefix, immutable
 docs/
+  capabilities.md       what the server can answer, by question rather than endpoint
   gateway-reference.md  observed gateway behaviour: paths, status semantics, paging
   endpoint-inventory.md documented endpoint surface, compiled from Jamf's llms.txt
 fixtures/
@@ -279,6 +280,7 @@ tenant, since no test can confirm the gateway's actual behaviour.
 - [CLAUDE.md](CLAUDE.md) — working rules for AI assistants in this repo
 - [decisions/](decisions/) — why the project is built this way
 - [docs/gateway-reference.md](docs/gateway-reference.md) — observed gateway behaviour
+- [docs/capabilities.md](docs/capabilities.md) — what the server can answer, and what it cannot
 - [docs/endpoint-inventory.md](docs/endpoint-inventory.md) — documented endpoint surface
 - [fixtures/discovery-report.md](fixtures/discovery-report.md) — empirical results
 

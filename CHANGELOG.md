@@ -113,6 +113,11 @@ for a search term that could never have matched.
   `INVENTORY_SETTING_CRITERION_ALIASES`, `BOUNDED_FIND_MAX_DEPTH`.
 - `.github/CODEOWNERS`, and an operator-facing write-posture section in `README.md`
   and `CONTRIBUTING.md`.
+- `docs/capabilities.md` — what the server can answer, organised by the question rather
+  than the endpoint, with an explicit section on what it cannot do. Tool names and
+  parameters are taken from the server's own `tools/list` response rather than from
+  source, so the page cannot drift from the wire without the check that produced it
+  failing.
 
 ### Fixed
 
