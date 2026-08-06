@@ -78,7 +78,18 @@ jobs:
             const msgs = lines.map((l) => JSON.parse(l));
             const tools = msgs.find((m) => m.result?.tools)?.result.tools ?? [];
             if (tools.length === 0) { console.error("no tools listed"); process.exit(1); }
-            console.log(`handshake OK, ${tools.length} tools`);
+            // JPM-0007: the advertised passthrough schema must offer no way to mutate.
+            // Checked on the wire, not just in source, because this is the surface a
+            // client actually sees.
+            const pass = tools.find((t) => t.name === "platformRequest");
+            if (!pass) { console.error("platformRequest not advertised"); process.exit(1); }
+            const params = Object.keys(pass.inputSchema?.properties ?? {});
+            const writeable = params.filter((p) => p === "method" || p === "body");
+            if (writeable.length > 0) {
+              console.error(`platformRequest advertises ${writeable.join(", ")} — writes go through typed tools, never the passthrough. See decisions/JPM-0007-write-path-posture.md.`);
+              process.exit(1);
+            }
+            console.log(`handshake OK, ${tools.length} tools, passthrough is GET-only`);
           '
 
       # DRY_RUN needs no credentials, and a broken probe table should fail here

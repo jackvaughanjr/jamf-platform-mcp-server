@@ -115,7 +115,11 @@ server.registerTool(
       'version segment, and no /JSSResource/ prefix, which does not exist on the gateway. ' +
       'The service segment may be more than one segment: Declaration Reporting is "ddm/report". ' +
       'Jamf Pro versions are per-resource (account-groups v1, enrollment v3, ' +
-      'computers-inventory v4) — do not assume v1.',
+      'computers-inventory v4) — do not assume v1. ' +
+      'READ-ONLY BY DESIGN: this tool issues GET and nothing else, and offers no method or ' +
+      'body parameter. Writes go through named typed tools with narrow schemas, never through ' +
+      'the passthrough, because a passthrough write is unreviewable — method, path and body ' +
+      'would all be composed by the caller with nothing to constrain them. See JPM-0007.',
     inputSchema: {
       service: z.string().describe('Gateway service segment, e.g. "blueprints", "devices"'),
       resource: z.string().optional().describe('Resource path, e.g. "blueprints". Omit if using rawPath.'),
@@ -129,15 +133,19 @@ server.registerTool(
         ),
       style: z.enum(['tenant', 'flat']).optional().describe('Path layout; defaults to "tenant"'),
       version: z.string().optional().describe('Version segment, defaults to "v1". Per-resource on Jamf Pro.'),
-      method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional().describe('Defaults to GET'),
       query: z.record(z.string(), z.string()).optional().describe('Query string parameters'),
-      body: z.unknown().optional().describe('JSON request body for write methods'),
     },
   },
-  async ({ service, resource, rawPath, style, version, method, query, body }) => {
+  // No `method` or `body` parameter, deliberately. JAMF_READ_ONLY would refuse a write
+  // today, but it is one env-var check away from permitting one, and a write deployment
+  // has cleared that var by definition — so the flag cannot be what makes the passthrough
+  // safe. Omitting the parameters means the tool has no way to express a mutation at all,
+  // which is the guarantee JPM-0007 wanted. `method` is pinned rather than left to default
+  // so this stays true if the client's default ever changes.
+  async ({ service, resource, rawPath, style, version, query }) => {
     try {
       return asContent(
-        await client.request({ service, resource, rawPath, style, version, method, query, body }),
+        await client.request({ service, resource, rawPath, style, version, query, method: 'GET' }),
       );
     } catch (error) {
       return asError(error);

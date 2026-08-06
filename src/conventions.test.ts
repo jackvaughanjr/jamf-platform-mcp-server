@@ -94,6 +94,30 @@ describe('README claims match reality', () => {
   });
 });
 
+// JPM-0007: the passthrough must not be able to express a mutation. Asserted on the
+// source rather than the running server because the point is that no write verb is
+// *offered* — a runtime check would only prove the current default, not the surface.
+// Checks for the verb literals rather than a `method:` key, since the handler pins
+// `method: 'GET'` and that must keep passing.
+describe('platformRequest cannot express a write', () => {
+  it('offers no write verb in the passthrough tool', () => {
+    const source = read('src/index.ts');
+    const start = source.indexOf("'platformRequest'");
+    expect(start, 'platformRequest registration not found').toBeGreaterThan(-1);
+    // The block ends where the next tool registration begins.
+    const end = source.indexOf('server.registerTool(', start);
+    const block = source.slice(start, end === -1 ? undefined : end);
+
+    for (const verb of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      expect(
+        block,
+        `platformRequest mentions ${verb}. Writes go through typed tools, never the ` +
+          'passthrough — see decisions/JPM-0007-write-path-posture.md.',
+      ).not.toContain(`'${verb}'`);
+    }
+  });
+});
+
 describe('data-handling invariants', () => {
   it('keeps captured responses and the real .env.op out of version control', () => {
     const ignore = read('.gitignore');
