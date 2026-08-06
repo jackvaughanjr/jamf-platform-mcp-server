@@ -484,6 +484,46 @@ describe('summarizeDeclarations', () => {
 
   it('reports nothing rather than throwing on an empty list', () => {
     const s = summarizeDeclarations([]);
-    expect(s).toEqual({ total: 0, byStatus: {}, byType: {}, byChannel: {}, inactive: 0, failed: [] });
+    expect(s).toEqual({
+      total: 0,
+      byStatus: {},
+      byType: {},
+      byChannel: {},
+      inactive: 0,
+      declarations: [],
+      failed: [],
+    });
+  });
+
+  // A summary of counts alone named no declaration, so a healthy device produced
+  // nothing to act on and nothing to pass to getDeclarationScope, which takes an
+  // identifier. The identifier is the only handle the rest of the API accepts.
+  it('names every declaration, not just how many there are', () => {
+    const s = summarizeDeclarations([
+      { declarationIdentifier: 'Blueprint_Passcode', type: 'CONFIGURATION', status: 'SUCCESSFUL', active: true },
+      { declarationIdentifier: 'Blueprint_Activation', type: 'ACTIVATION', status: 'SUCCESSFUL', active: false },
+    ]);
+    expect(s.declarations).toEqual([
+      {
+        declarationIdentifier: 'Blueprint_Activation',
+        type: 'ACTIVATION',
+        status: 'SUCCESSFUL',
+        active: false,
+        channel: undefined,
+      },
+      {
+        declarationIdentifier: 'Blueprint_Passcode',
+        type: 'CONFIGURATION',
+        status: 'SUCCESSFUL',
+        active: true,
+        channel: undefined,
+      },
+    ]);
+  });
+
+  it('names an unnamed declaration rather than omitting it from the list', () => {
+    const s = summarizeDeclarations([{ status: 'SUCCESSFUL' }]);
+    expect(s.declarations).toHaveLength(1);
+    expect(s.declarations[0]?.declarationIdentifier).toBe('(unnamed)');
   });
 });

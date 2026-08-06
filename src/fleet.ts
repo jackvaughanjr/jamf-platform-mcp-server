@@ -433,6 +433,21 @@ export interface DeclarationRecord {
   }>;
 }
 
+/**
+ * One declaration named, so the answer can be acted on or chained.
+ *
+ * `declarationIdentifier` is the handle every other Declaration Reporting route
+ * takes — notably `getDeclarationScope`, which needs one to ask the fleet-wide
+ * question. A summary of counts alone cannot be fed anywhere.
+ */
+export interface DeclarationListing {
+  declarationIdentifier: string;
+  type?: string;
+  status?: string;
+  active?: boolean;
+  channel?: string;
+}
+
 /** A declaration that did not land, with the reasons flattened for reading. */
 export interface FailedDeclaration {
   declarationIdentifier: string;
@@ -468,6 +483,7 @@ export function summarizeDeclarations(records: DeclarationRecord[]): {
   byType: Record<string, number>;
   byChannel: Record<string, number>;
   inactive: number;
+  declarations: DeclarationListing[];
   failed: FailedDeclaration[];
 } {
   const tally = (values: Array<string | undefined>) =>
@@ -509,12 +525,31 @@ export function summarizeDeclarations(records: DeclarationRecord[]): {
     });
   }
 
+  // Counts answer "is this device healthy" and never "which declarations are on it",
+  // so a healthy device produced a summary with no identifier in it anywhere — nothing
+  // to act on, and nothing to hand to getDeclarationScope. Naming them is the point:
+  // an identifier is the only handle the rest of the API takes.
+  const declarations: DeclarationListing[] = records
+    .map((r) => ({
+      declarationIdentifier: r.declarationIdentifier ?? '(unnamed)',
+      type: r.type,
+      status: r.status,
+      active: r.active,
+      channel: r.channel,
+    }))
+    .sort(
+      (a, b) =>
+        a.declarationIdentifier.localeCompare(b.declarationIdentifier) ||
+        (a.type ?? '').localeCompare(b.type ?? ''),
+    );
+
   return {
     total: records.length,
     byStatus: tally(records.map((r) => r.status)),
     byType: tally(records.map((r) => r.type)),
     byChannel: tally(records.map((r) => r.channel)),
     inactive: records.filter((r) => r.active === false).length,
+    declarations,
     failed,
   };
 }

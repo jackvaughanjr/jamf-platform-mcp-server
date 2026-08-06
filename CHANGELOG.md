@@ -96,6 +96,14 @@ for a search term that could never have matched.
 
 ### Fixed
 
+- **`getDeviceDeclarationState` reported how many declarations a device had but never
+  which.** On a healthy device the whole answer was counts — `total`, `byStatus`,
+  `byType` — with identifiers appearing only inside `failed[]`, which is empty when
+  nothing is wrong. So a healthy device produced nothing to act on and nothing to pass
+  to `getDeclarationScope`, which needs a `declarationIdentifier`. That is the same
+  "answers how many, never which" flaw `getDeviceGroupMembers` was built to fix, left
+  sitting in a new tool. `summarizeDeclarations` now returns a `declarations` list
+  naming each one with its type, status, active flag and channel.
 - **`requestAll` returned `[]` for Jamf Pro Classic instead of failing.** Classic has
   no paging envelope, so the pager read "no items", stopped, and reported an empty
   list with no error. It now throws before the token request and names
