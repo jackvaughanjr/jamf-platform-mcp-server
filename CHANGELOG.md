@@ -10,7 +10,60 @@ guarantee.
 
 ## [Unreleased]
 
-Nothing yet.
+Slated for 0.3.0. The theme is that several tools were stating conclusions more
+confidently than their evidence supported — a paging helper that returned an empty
+list for a response it could not read, and an audit that reported "no references"
+for a search term that could never have matched.
+
+### Added
+
+- **`requestAll` pages each segment by its own family.** `inferPagingFamily` derives
+  the family from the service segment, with an explicit `pagingFamily` override.
+  Inference is the default because both deviations are silent, so an opt-in parameter
+  is only correct when the caller remembers it.
+- **`platformRequest` is GET-only** and no longer offers `method` or `body`, so the
+  passthrough cannot express a mutation at all
+  ([JPM-0007](decisions/JPM-0007-write-path-posture.md) part 3). Guarded in the
+  conventions test and on the wire in CI's handshake step.
+- **`findCriteriaReferences` sweeps criterion-name aliases** rather than the literal
+  query, and reports `termsSwept`, `matchedSettingKey` and `aliasesUsed` with each
+  alias's confidence. Only `package_receipts` → "Packages Installed" / "Cached
+  Packages" is verified against a live tenant; every other entry is a deliberately
+  broad substring, and a test pins the confirmed set so a guess cannot be promoted
+  silently.
+- `sweepCriterionMatches`, `sweepDisplayFieldMatches`, `expandInventoryQuery`,
+  `INVENTORY_SETTING_CRITERION_ALIASES`, `BOUNDED_FIND_MAX_DEPTH`.
+- `.github/CODEOWNERS`, and an operator-facing write-posture section in `README.md`
+  and `CONTRIBUTING.md`.
+
+### Fixed
+
+- **`requestAll` returned `[]` for Jamf Pro Classic instead of failing.** Classic has
+  no paging envelope, so the pager read "no items", stopped, and reported an empty
+  list with no error. It now throws before the token request and names
+  `extractClassicList` as the alternative.
+- **`requestAll` silently truncated Declaration Reporting to 20 records.** That group
+  spells the parameter `size`; the `page-size` being sent was ignored and its default
+  applied. A caller-supplied `page-size` is now dropped on that family rather than
+  sent knowing it is inert.
+- **`requestAll` could not tell an unreadable response from an empty one.** Any body
+  without `results[]` or `items[]` yielded an empty batch, which the pager treats as
+  the last page. It now throws and names the keys actually present.
+- **`findExpensiveAutomations` flagged bounded filesystem walks.** `find / -maxdepth 1`
+  is cheap and was reported alongside genuine unbounded walks; false positives train
+  people to ignore an audit. Bounds deeper than `BOUNDED_FIND_MAX_DEPTH` still flag,
+  as does a bound belonging to a different command on the same line.
+- **`getInventoryCollectionSettings` under-rated application collection.** A category
+  with custom search paths was still rated `low` while its own explanation named the
+  extra walks. Escalated categories now report the configured `paths`, because the
+  rating is inferred from the count rather than measured and is therefore checkable
+  rather than authoritative.
+- **`DRY_RUN=1 ./scripts/discover-gateway.sh` printed a real tenant id** when one was
+  exported in the caller's shell, despite being the one documented command that
+  contacts nothing. Nothing reached git; the exposure was pasted terminal output.
+- Corrected the `(?!\S*\bnull\b)` rationale, which described behaviour the regex
+  never had: it suppresses `find /dev/null` only, not a `> /dev/null` redirect.
+- `package-lock.json`'s own `version` field, left at `0.1.0` through two releases.
 
 ## [0.2.1] — 2026-08-06
 
