@@ -606,6 +606,107 @@ export interface JamfCriterion {
   value?: string | number | boolean | null;
   priority?: number;
   and_or?: string;
+  opening_paren?: boolean;
+  closing_paren?: boolean;
+}
+
+/** One criterion rendered as a line a human can read in order. */
+export interface ReadableCriterion {
+  order: number;
+  /** `and` / `or` joining this to the previous line. Absent on the first. */
+  join?: string;
+  field: string;
+  operator: string;
+  value?: string;
+  openParen: boolean;
+  closeParen: boolean;
+  /** One line, e.g. `and (Computer Group member of "CMMC: Compliance Required")`. */
+  line: string;
+}
+
+/** Something about a criterion that will surprise whoever reads the group. */
+export interface CriterionWarning {
+  order: number;
+  field: string;
+  issue: string;
+  why: string;
+}
+
+/**
+ * Renders a smart group's criteria in evaluation order, and flags the ones that do
+ * not mean what they look like.
+ *
+ * Reading a group in the Jamf UI shows the rules; it does not tell you that an
+ * unanchored regex is a *search*, so `(\b[a-z0-9_\-]+\n?\b)+` succeeds on any value
+ * holding one qualifying token. A criterion written to mean "has failures" then means
+ * "is not blank", and values like `Not in scope` or `No Baseline Set` satisfy it. That
+ * was found in a live tenant, where it made every device with any value at all count
+ * as non-compliant.
+ *
+ * Warnings describe what the criterion will actually do. They are never assertions
+ * that it is wrong — an unanchored regex is sometimes exactly what was wanted.
+ */
+export function summarizeGroupCriteria(criteria: JamfCriterion[] | null | undefined): {
+  criteria: ReadableCriterion[];
+  warnings: CriterionWarning[];
+} {
+  if (!Array.isArray(criteria)) return { criteria: [], warnings: [] };
+
+  const readable: ReadableCriterion[] = [];
+  const warnings: CriterionWarning[] = [];
+
+  criteria.forEach((c, index) => {
+    const field = c.name ?? '(unnamed)';
+    const operator = c.search_type ?? '(no operator)';
+    const value = valueToString(c.value);
+    const openParen = c.opening_paren === true;
+    const closeParen = c.closing_paren === true;
+    const join = index === 0 ? undefined : (c.and_or ?? 'and');
+
+    const rendered = [
+      join,
+      openParen ? '(' : undefined,
+      field,
+      operator,
+      value === undefined ? undefined : JSON.stringify(value),
+      closeParen ? ')' : undefined,
+    ]
+      .filter((part): part is string => part !== undefined && part !== '')
+      .join(' ');
+
+    readable.push({ order: index, join, field, operator, value, openParen, closeParen, line: rendered });
+
+    if (operator.toLowerCase() === 'matches regex' && value !== undefined) {
+      if (!value.startsWith('^')) {
+        warnings.push({
+          order: index,
+          field,
+          issue: 'unanchored regex — this matches any value CONTAINING a match, not the whole value',
+          why:
+            'A criterion meant as "has failures" becomes "is not blank": placeholder values such ' +
+            'as "Not in scope" or "No Baseline Set" satisfy it, and so does anything else with a ' +
+            'qualifying token. Anchor with ^ and $ if the whole value was meant to be tested.',
+        });
+      }
+      // Plain string tests, not a regex about a regex — the first attempt at this
+      // matched the wrong escaping and silently never fired.
+      const lowercaseOnlyClass =
+        value.includes('[a-z') && !value.includes('[a-zA-Z') && !value.includes('A-Z');
+      if (lowercaseOnlyClass) {
+        warnings.push({
+          order: index,
+          field,
+          issue: 'lowercase-only character class, but Jamf Pro matches case-insensitively by default',
+          why:
+            "MySQL's default collation is case-insensitive, so an uppercase value like EMPTY can " +
+            'match a class written as [a-z0-9_-]. A group meant to exclude a sentinel value may ' +
+            'include it, putting a device in both the compliant and non-compliant group at once.',
+        });
+      }
+    }
+  });
+
+  return { criteria: readable, warnings };
 }
 
 export interface CriterionMatch {

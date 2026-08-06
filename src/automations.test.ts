@@ -12,6 +12,7 @@ import {
   INVENTORY_SETTING_CRITERION_ALIASES,
   mapWithConcurrency,
   scanForExpensiveCommands,
+  summarizeGroupCriteria,
   sweepCriterionMatches,
   sweepDisplayFieldMatches,
 } from './automations.js';
@@ -545,5 +546,67 @@ describe('INVENTORY_SETTING_CRITERION_ALIASES', () => {
         expect(['confirmed', 'broad-substring'], key).toContain(alias.confidence);
       }
     }
+  });
+});
+
+describe('summarizeGroupCriteria', () => {
+  it('renders criteria in order with joins, parentheses and quoted values', () => {
+    const { criteria } = summarizeGroupCriteria([
+      { name: 'Computer Group', search_type: 'member of', value: 'Compliance Required' },
+      { name: 'Operating System Version', search_type: 'like', value: '26.', and_or: 'and', opening_paren: true },
+      { name: 'Building', search_type: 'is', value: 'HQ', and_or: 'or', closing_paren: true },
+    ]);
+    expect(criteria.map((c) => c.line)).toEqual([
+      'Computer Group member of "Compliance Required"',
+      'and ( Operating System Version like "26."',
+      'or Building is "HQ" )',
+    ]);
+    // The first line must carry no join — rendering one implies a rule above it.
+    expect(criteria[0]?.join).toBeUndefined();
+    expect(criteria[1]?.join).toBe('and');
+  });
+
+  // Found in a live tenant: a criterion written to mean "has failures" meant "is not
+  // blank", so values like "Not in scope" satisfied it and every device with any value
+  // counted as non-compliant.
+  it('flags an unanchored regex, because it tests CONTAINS rather than EQUALS', () => {
+    const { warnings } = summarizeGroupCriteria([
+      { name: 'Failed Result List', search_type: 'matches regex', value: '(\\b[a-z0-9_\\-]+\\n?\\b)+' },
+    ]);
+    expect(warnings.map((w) => w.issue)).toContain(
+      'unanchored regex — this matches any value CONTAINING a match, not the whole value',
+    );
+  });
+
+  it('flags a lowercase-only class, since Jamf matches case-insensitively', () => {
+    const { warnings } = summarizeGroupCriteria([
+      { name: 'Failed Result List', search_type: 'matches regex', value: '^[a-z0-9_-]+$' },
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.issue).toContain('lowercase-only character class');
+  });
+
+  it('stays silent on a regex that is anchored and case-explicit', () => {
+    expect(
+      summarizeGroupCriteria([{ name: 'x', search_type: 'matches regex', value: '^[a-zA-Z0-9]+$' }]).warnings,
+    ).toEqual([]);
+  });
+
+  it('does not flag operators other than matches regex', () => {
+    expect(
+      summarizeGroupCriteria([{ name: 'x', search_type: 'like', value: 'EMPTY' }]).warnings,
+    ).toEqual([]);
+  });
+
+  it('names an unnamed field and a missing operator rather than dropping the criterion', () => {
+    const { criteria } = summarizeGroupCriteria([{ value: 'x' }]);
+    expect(criteria).toHaveLength(1);
+    expect(criteria[0]?.field).toBe('(unnamed)');
+    expect(criteria[0]?.operator).toBe('(no operator)');
+  });
+
+  it('returns nothing for absent criteria rather than throwing', () => {
+    expect(summarizeGroupCriteria(undefined)).toEqual({ criteria: [], warnings: [] });
+    expect(summarizeGroupCriteria(null)).toEqual({ criteria: [], warnings: [] });
   });
 });

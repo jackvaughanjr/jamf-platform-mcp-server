@@ -17,6 +17,19 @@ for a search term that could never have matched.
 
 ### Added
 
+- **`getComputerGroup`** — a group's criteria in evaluation order, with parentheses and
+  and/or joins preserved, plus a member count. Members are opt-in, because every existing
+  route to this answer was wrong: `findGroupDependencies` fetches all group details and
+  discards every criterion that is not a membership edge, `findCriteriaReferences` searches
+  criteria but will not show a group's rules, and `platformRequest` returns the raw Classic
+  envelope — a full roster of names, serials and MAC addresses to answer a two-line question.
+  Flags criteria that will not do what they appear to: an **unanchored `matches regex`** tests
+  whether a value CONTAINS a match rather than equals one, which silently turns "has failures"
+  into "is not blank", and a **lowercase-only character class** still matches uppercase because
+  Jamf Pro's MySQL collation is case-insensitive. Both were found in a live tenant, where
+  together they let a sentinel value satisfy a group meant to exclude it. A static group says
+  so rather than returning an empty criteria list, which would read as a smart group with no
+  rules.
 - **`findObjectReferences`** — what references a package, computer group or script,
   the check to run before deleting one. Jamf has no built-in answer ("There is no
   built-in feature for this, which is why there have been feature requests" —

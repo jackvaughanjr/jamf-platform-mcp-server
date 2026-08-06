@@ -15,6 +15,7 @@ import {
   findDisplayFieldMatches,
   mapWithConcurrency,
   scanForExpensiveCommands,
+  summarizeGroupCriteria,
   sweepCriterionMatches,
   sweepDisplayFieldMatches,
   type InventoryCollectionSettings,
@@ -1424,6 +1425,131 @@ server.registerTool(
             }
           : {}),
         ...(Object.keys(errors).length > 0 ? { partialFailures: errors } : {}),
+      });
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+/**
+ * Reads one computer group: its rules, in order, and what they will actually do.
+ *
+ * Every existing route to this answer is wrong in some way. `findGroupDependencies`
+ * fetches all 87 group details and then discards every criterion that is not a group
+ * membership edge. `findCriteriaReferences` searches criteria for a term but will not
+ * show you a group's rules. `platformRequest` returns the raw Classic envelope, which
+ * for a 34-member group means a full roster of names, serials and MAC addresses to
+ * answer a two-line question about criteria.
+ *
+ * So members are opt-in here and a count is the default. The rules are the answer; the
+ * roster is a different question.
+ */
+server.registerTool(
+  'getComputerGroup',
+  {
+    title: 'Get computer group',
+    description:
+      "Read a computer group's criteria in evaluation order, with parentheses and " +
+      'and/or joins preserved, plus a member count. Flags criteria that will not do ' +
+      'what they appear to: an unanchored "matches regex" tests whether a value ' +
+      'CONTAINS a match rather than equals one, which turns "has failures" into "is ' +
+      'not blank". Accepts a group id or a name substring; an ambiguous name returns ' +
+      'candidates. Members are NOT included unless asked for, since the roster carries ' +
+      'serials and MAC addresses and is rarely the question.',
+    inputSchema: {
+      group: z.string().min(1).describe('Group id, or a substring of the group name'),
+      includeMembers: z
+        .boolean()
+        .optional()
+        .describe('Include the member list. Defaults to false; a count is always returned.'),
+      memberLimit: z
+        .number()
+        .int()
+        .positive()
+        .max(2000)
+        .optional()
+        .describe('Cap on members returned when includeMembers is true. Defaults to 200.'),
+    },
+  },
+  async ({ group, includeMembers, memberLimit }) => {
+    try {
+      const limit = memberLimit ?? 200;
+      let groupId: string | undefined = /^\d+$/.test(group.trim()) ? group.trim() : undefined;
+
+      if (!groupId) {
+        const stubs = await classicList<{ id: number; name: string }>('computergroups', [
+          'computer_groups',
+          'computer_group',
+        ]);
+        const q = group.trim().toLowerCase();
+        const matches = stubs.filter((g) => (g.name ?? '').toLowerCase().includes(q));
+        if (matches.length === 0) {
+          return asContent({ query: group, matched: 0, hint: 'No group matched. Try findDeviceGroups.' });
+        }
+        if (matches.length > 1) {
+          // Compliance groups differ by one word — "L2 - Tahoe" versus
+          // "L2 - Tahoe Non-compliant" — so guessing would answer a different question
+          // while looking authoritative.
+          const exact = matches.filter((g) => (g.name ?? '').toLowerCase() === q);
+          if (exact.length !== 1) {
+            return asContent({
+              query: group,
+              matched: matches.length,
+              hint: 'Ambiguous — re-run with one of these ids, or the exact full name.',
+              candidates: matches.map((g) => ({ id: String(g.id), name: g.name })),
+            });
+          }
+          groupId = String(exact[0]?.id);
+        } else {
+          groupId = String(matches[0]?.id);
+        }
+      }
+
+      const detail = await classicDetail<{
+        id?: number;
+        name?: string;
+        is_smart?: boolean;
+        site?: { name?: string };
+        criteria?: JamfCriterion[];
+        computers?: Array<{ id?: number; name?: string; serial_number?: string }>;
+      }>('computergroups', groupId, ['computer_group']);
+
+      if (!detail) {
+        return asError(new Error(`group ${groupId} returned a shape with no computer_group key`));
+      }
+
+      const members = Array.isArray(detail.computers) ? detail.computers : [];
+      const { criteria, warnings } = summarizeGroupCriteria(detail.criteria);
+
+      return asContent({
+        id: String(detail.id ?? groupId),
+        name: detail.name,
+        isSmart: detail.is_smart === true,
+        site: detail.site?.name,
+        memberCount: members.length,
+        // A static group has no criteria by definition. Saying so beats an empty array,
+        // which reads as "a smart group with no rules" — a different and alarming thing.
+        ...(detail.is_smart === true
+          ? { criteria, ...(warnings.length > 0 ? { criteriaWarnings: warnings } : {}) }
+          : {
+              criteria: [],
+              note: 'Static group: membership is assigned directly, so there are no criteria to read.',
+            }),
+        ...(includeMembers
+          ? {
+              members: members.slice(0, limit).map((m) => ({
+                id: String(m.id ?? ''),
+                name: m.name,
+                serialNumber: m.serial_number,
+              })),
+              ...(members.length > limit ? { membersTruncated: members.length - limit } : {}),
+            }
+          : {
+              membersOmitted:
+                'Member list omitted. Re-run with includeMembers true if you need it — it carries ' +
+                'serials and device names.',
+            }),
       });
     } catch (error) {
       return asError(error);
