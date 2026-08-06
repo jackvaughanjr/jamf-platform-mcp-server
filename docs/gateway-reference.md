@@ -2,7 +2,7 @@
 
 Empirical findings about a product in public beta, established against a live tenant
 from 2026-08-04 onward and last extended on 2026-08-06. These are **observations, not
-decisions** — they will change as Jamf ships more of the gateway. Decisions live in
+decisions**, and they will change as Jamf ships more of the gateway. Decisions live in
 [`decisions/`](../decisions/).
 
 Source of truth for the raw results: [`fixtures/discovery-report.md`](../fixtures/discovery-report.md),
@@ -22,7 +22,7 @@ has ever worked.
 
 Both shapes are built by `buildUrl` from `resource`, which fills the tenant in from
 config. Expressing Classic through `rawPath` instead means interpolating the tenant by
-hand, and a caller that does not have it emits `/tenant//{resource}` — answered with
+hand, and a caller that does not have it emits `/tenant//{resource}`, answered with
 **400 `REQUEST_CONTEXT_NOT_PROVIDED`**, which describes a missing token context and says
 nothing about an empty variable. Prefer `style: 'classic'`.
 
@@ -44,7 +44,7 @@ nothing about an empty variable. Prefer `style: 'classic'`.
 
 ### Declaration Reporting, confirmed live 2026-08-06
 
-`devices/{id}/declarations` had been documented-but-uncalled until now — the discovery
+`devices/{id}/declarations` had been documented-but-uncalled until now. The discovery
 script stops at its first 200 per group, so `channels` resolving meant this one was
 never tried. It returns 200.
 
@@ -56,13 +56,13 @@ never tried. It returns 200.
   route entirely.** A rollout in progress reads as having reached fewer devices than it
   has, so an empty `failed` list never means "fully deployed".
 - Observed on one Mac: 9 declarations, all `status: SUCCESSFUL`, `type` split evenly
-  3/3/3 across `CONFIGURATION`, `MANAGEMENT` and `ACTIVATION` — the DDM triad, where a
+  3/3/3 across `CONFIGURATION`, `MANAGEMENT` and `ACTIVATION`: the DDM triad, where a
   configuration is accompanied by an activation and a management declaration. So a
   device's declaration count is roughly 3× the number of things actually configured;
   do not read `total` as "9 settings applied".
 - Only `channel: SYSTEM` was observed, matching `channels: ["SYSTEM"]` from the sibling
   route. A user-channel device would presumably differ; unverified.
-- **`active: false` co-occurs with `status: SUCCESSFUL`** — 3 of the 9. So `active` is
+- **`active: false` co-occurs with `status: SUCCESSFUL`**, on 3 of the 9. So `active` is
   not a health signal and must not be summed into a failure count. What distinguishes
   an inactive-but-successful declaration is not yet understood.
 - **RSQL wildcards are field-specific, and an unsupported one returns 200 with zero
@@ -83,7 +83,7 @@ never tried. It returns 200.
   `*` and matches nothing **without erroring**. The empty result is indistinguishable
   from a real absence, which is what makes it dangerous.
 
-  **Use `active==true,active==false`** — an OR across every value a boolean can hold.
+  **Use `active==true,active==false`**, an OR across every value a boolean can hold.
   `channel==SYSTEM` returns the same rows here only because this tenant has no
   user-channel records for the declaration tested; it would silently hide them on a
   tenant that does, so it is not a match-all. Caveat on the recommended filter: a row
@@ -104,7 +104,7 @@ never tried. It returns 200.
   traced back to the Blueprint that produced it by parsing the identifier, with `s` and
   `c` appearing to be step and component index, `sys` the system channel, and
   `cfg`/`act` the configuration and activation members of the triad. Inferred from one
-  device's naming, not from documentation — do not rely on it without checking more.
+  device's naming, not from documentation. Do not rely on it without checking more.
 - **`MANAGEMENT`-type declarations were the `active: false` ones.** All three inactive
   declarations on the sampled Mac were `MANAGEMENT`, and all three `CONFIGURATION` and
   `ACTIVATION` ones were active. One device is not a pattern, but it is the first hint
@@ -113,14 +113,14 @@ never tried. It returns 200.
   result seen (35 records) still fits inside the `size=100` that `requestAll` sends.
 
 **Compliance Benchmarks:** path is correct —
-`/api/compliance-benchmarks/v1/tenant/{t}/benchmarks`, as documented — but returns
+`/api/compliance-benchmarks/v1/tenant/{t}/benchmarks`, as documented, but returns
 **500 `{"error":"Upstream host lookup failed"}`**. The gateway routes it and cannot
 reach its own backend. Nothing a client can do; report it to Jamf. A canary probe
 remains in the discovery script.
 
 ### Confirmed Classic routes under `proclassic`
 
-All verified live. Path shape is `/api/proclassic/tenant/{tenantId}/{resource}` —
+All verified live. Path shape is `/api/proclassic/tenant/{tenantId}/{resource}`,
 no version segment, no `/JSSResource/` prefix.
 
 | resource | detail path | notes |
@@ -131,7 +131,7 @@ no version segment, no `/JSSResource/` prefix.
 | `computerinventorycollection` | — | single object; includes `home_directory_sizes` |
 | `activationcode` | — | the smallest useful smoke test |
 
-**Classic JSON wraps collections in the PLURAL key** — `{"scripts": [...]}` — while
+**Classic JSON wraps collections in the PLURAL key**, `{"scripts": [...]}`, while
 the reference pages describe the XML schema, which names the repeated singular
 element plus a `size` count. Reading the docs literally and looking for `script`
 finds nothing, and returning an empty list on a miss produces a false all-clear.
@@ -147,7 +147,7 @@ Three fields are misspelled in the live API: `inclue_applications`, `inclue_font
 
 - **Classic** (`proclassic`) wraps in a named key with `snake_case` fields, has no
   `results[]`, no `totalCount` and no paging envelope. `requestAll` does not apply.
-- **Declaration Reporting** (`ddm/report`) paginates with `page` and **`size`** — not
+- **Declaration Reporting** (`ddm/report`) paginates with `page` and **`size`**, not
   `page-size`. Sending `page-size` is silently ignored and yields the default 20.
 - **Newer groups** use `camelCase` with `results[]`.
 
@@ -185,7 +185,7 @@ segment; `getdevicechannels` names `ddm/report`.
 ## Hosted service segments
 
 Enumerable, because a route that cannot exist returns 403 under a hosted segment
-and 404 under one the gateway does not serve — so no valid route need be known.
+and 404 under one the gateway does not serve, so no valid route need be known.
 
 **Blind spot:** this only probes the exact string given, so a **multi-segment**
 prefix reads as absent. `ddm` enumerates as not hosted while `ddm/report` is
@@ -195,7 +195,7 @@ reachable".
 **Hosted:** `blueprints`, `devices`, `device-groups`, `pro`, `device-actions`,
 `proclassic`, `ddm/report`
 
-**Hosted but broken upstream:** `compliance-benchmarks` — routes, then 500s with
+**Hosted but broken upstream:** `compliance-benchmarks` routes, then 500s with
 `Upstream host lookup failed`.
 
 **Not hosted:** `classic`, `jamf-pro-classic`, `jssresource`, `jamf-pro`,
@@ -229,7 +229,7 @@ flat route that cannot exist, working service      -> 400 REQUEST_CONTEXT_NOT_PR
 | **403 `BAD_PERMISSIONS`** | unknown *route* inside a reachable service. A wrong path, **not** a permission problem — keep sweeping candidates |
 | **403 other body** | the gateway recognises the route and refuses it, e.g. `{"error":"Requested endpoint is forbidden"}`. A real signal about that path |
 | **400 `REQUEST_CONTEXT_NOT_PROVIDED`** | no tenant in the path. Says **nothing** about whether the route exists |
-| **401** | token rejected — a credential problem, not a path problem |
+| **401** | token rejected. A credential problem, not a path problem |
 
 **Tell the two 403s apart by envelope.** `BAD_PERMISSIONS` arrives in Jamf Pro's
 own format (`httpStatus`, `traceId`, `errors[].code`), meaning the request reached
@@ -241,7 +241,7 @@ under the same `read:pro:blueprints` that 403s elsewhere.
 
 `scripts/discover-gateway.sh` saves every 4xx body to `fixtures/raw/errors/`
 (gitignored) and puts a scrubbed message in the report. **Read the bodies before
-theorising** — three passes were spent inferring from bare status codes, and the
+theorising**: three passes were spent inferring from bare status codes, and the
 status alone was actively misleading.
 
 ## Pagination
@@ -260,7 +260,7 @@ segments, not all.** Two deviate, and both deviate *silently*:
 |---|---|---|
 | most (`devices`, `device-groups`, `blueprints`, `blueprint-components`, `pro`) | `page-size` | correct |
 | `ddm/report` | **`size`** | ignores `page-size`, applies its default of 20, returns a valid-looking first page |
-| `proclassic` | none — no paging envelope at all | no `results[]`, so a pager reads "no items", stops, and reports an empty list with no error |
+| `proclassic` | none, no paging envelope at all | no `results[]`, so a pager reads "no items", stops, and reports an empty list with no error |
 
 Neither returns an error, which is why this is enforced in code rather than left to
 a caller's memory: `inferPagingFamily` in `src/platform-client.ts` derives the family
@@ -290,7 +290,7 @@ Confirmed over two pages of live records:
 | `lastInventoryUpdateTime` | populated | populated |
 
 **Never compute staleness from `lastCheckInTime` alone.** Doing so reports every
-mobile device as having never reported in — roughly a third of a mixed fleet —
+mobile device as having never reported in, roughly a third of a mixed fleet,
 while their inventory timestamps are days old. `lastInventoryUpdateTime` is the
 only field populated across platforms. `src/fleet.ts` takes the freshest of the
 three and reports which field supplied it, so the gap stays visible instead of
@@ -307,7 +307,7 @@ projection reports `operatingSystemVersion: ""` next to a major version of
 Confirmed over a full fleet fetch: `lastCheckInTime` is populated on exactly the
 macOS devices and no others, and `lastInventoryUpdateTime` is populated on every
 record. More useful still, inventory-update supplied the freshest value for the
-large majority of devices **including Macs that have both fields** — so it is the
+large majority of devices **including Macs that have both fields**, so it is the
 better primary signal generally, not merely a mobile fallback. Treat check-in as
 supplementary.
 
@@ -320,7 +320,7 @@ query parameters survive the `platformRequest` passthrough.
 
 ## Cross-platform endpoints
 
-`devices` and `device-groups` span macOS and iOS/iPadOS in a single list —
+`devices` and `device-groups` span macOS and iOS/iPadOS in a single list:
 `device-groups` mixes `COMPUTER` and `MOBILE` `deviceType`, smart and static. They
 are **not** equivalent to the Jamf Pro API's separate computer and mobile-device
 endpoints, so anything ported from `listComputers` semantics will silently include
@@ -352,8 +352,8 @@ Kept so nobody re-derives them:
 
 **The recurring cause was method, not the documentation.** Four claims above came
 from probing candidate paths while reading only index files. The endpoint reference
-pages had the answers throughout. Where the docs *were* misleading — Declaration
+pages had the answers throughout. Where the docs *were* misleading (Declaration
 Reporting's published paths omit the tenant segment the gateway requires, and
-Device Management Actions is `device-actions` not its documented group name — that
+Device Management Actions is `device-actions` not its documented group name), that
 is a reason to verify a documented path, not a reason to guess instead of reading
 one.

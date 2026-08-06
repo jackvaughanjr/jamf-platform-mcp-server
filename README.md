@@ -13,7 +13,7 @@ An MCP server that gives AI assistants read access to a Jamf fleet through the
 **Jamf Platform API Gateway**, authenticating with OAuth 2.0 client credentials
 rather than user-account tokens. That choice is the point of the project: scoped
 machine credentials mean the permission boundary is enforced by Jamf, so a
-read-only integration cannot mutate a fleet no matter what this code does — see
+read-only integration cannot mutate a fleet no matter what this code does. See
 [JPM-0001](decisions/JPM-0001-target-platform-api-gateway.md).
 Canonical location: `github.com/jackvaughanjr/jamf-platform-mcp-server`.
 
@@ -32,7 +32,7 @@ history, no upstream remote, and no copied code.
 
 It is worth naming an influence, though: evaluating
 [dbankscard/jamf-mcp-server](https://github.com/dbankscard/jamf-mcp-server) (MIT)
-is what surfaced the compound-tool idea used here — answering a whole fleet
+is what surfaced the compound-tool idea used here: answering a whole fleet
 question in one call rather than making a model loop over per-device requests.
 That is a design idea, freely reusable and not subject to any licence term, so
 this credit is courtesy rather than obligation and carries no requirement onward
@@ -93,7 +93,7 @@ Working and confirmed against a live tenant:
 | `ddm/report` | tenant | `declarations/{id}/devices` | the same state per declaration, across devices |
 
 **Compliance Benchmarks** has a correct, documented path but returns 500
-`{"error":"Upstream host lookup failed"}` — the gateway routes it and cannot reach
+`{"error":"Upstream host lookup failed"}`. The gateway routes it and cannot reach
 its own backend. A fault on Jamf's side, not something a client can work around.
 
 An earlier revision of this file claimed Classic, Declaration Reporting and
@@ -148,11 +148,11 @@ attributed to a named person and lands in Jamf's audit log.
 
 `JAMF_READ_ONLY` above is a backstop, not the guarantee: it is on unless the value
 is the literal string `false`, so a typo fails closed. The real boundary is what
-the credential's scopes permit, which Jamf enforces — not this code. A fork that
+the credential's scopes permit, which Jamf enforces, not this code. A fork that
 grants write scopes is making that decision, and owns what follows from it.
 
 `platformRequest` offers no `method` or `body` parameter, so the passthrough cannot
-express a mutation at all — not even with write scopes granted. A passthrough write
+express a mutation at all, not even with write scopes granted. A passthrough write
 is unreviewable in a way a typed tool's write is not, since method, path and body
 would all be caller-composed with no schema constraining any of them. Any future
 write is a named tool with a narrow schema, so the set of possible mutations stays
@@ -183,8 +183,9 @@ claude mcp add jamf-platform -- node /absolute/path/to/dist/index.js
   client secret and captured fleet data; a pre-commit hook enforces it.
 - **Never commit a captured API response.** Only type-only shapes
   ([JPM-0004](decisions/JPM-0004-type-only-fixtures.md)).
-- **Confirm routes empirically.** A Jamf docs section is not evidence a route
-  exists — the documentation has been wrong three times about this gateway.
+- **Confirm routes empirically.** A Jamf docs section is not evidence a route exists.
+  The documentation has been wrong about this gateway four times, each retraction
+  recorded in [docs/gateway-reference.md](docs/gateway-reference.md).
 - **Commit messages** explain *why*, and state explicitly when they retract an
   earlier conclusion. Descriptive imperative subjects; not Conventional Commits,
   which is why there is no badge claiming otherwise.
@@ -197,7 +198,7 @@ source of the version. Changes are recorded in
 Releases are tagged `vX.Y.Z`.
 
 While the gateway remains in public beta, **minor versions may carry breaking
-changes** — the upstream contract offers no stability guarantee, so strict SemVer
+changes**, because the upstream contract offers no stability guarantee, so strict SemVer
 against it would be a false promise.
 
 ## Testing
@@ -208,7 +209,7 @@ npm run typecheck
 DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix, no credentials needed
 ```
 
-To exercise a tool against a live tenant — works from any directory:
+To exercise a tool against a live tenant, from any directory:
 
 ```bash
 scripts/jamf tools/list
@@ -233,10 +234,10 @@ never reach it and the server exits on config validation. Its `-e` flag would wo
 but puts the client secret on a command line where `ps` can read it.
 `scripts/call-tool.mjs` spawns the server with the environment inherited, so
 credentials go straight to the process that needs them. Its output can contain live
-fleet data — redirect to a gitignored path if you keep it.
+fleet data, so redirect to a gitignored path if you keep it.
 
 Tests never reach the gateway: `fetch` is stubbed per test and credentials are
-fixtures. The suite is mutation-checked rather than assumed useful — each of these
+fixtures. The suite is mutation-checked rather than assumed useful: each of these
 deliberate breakages causes failures: removing the `totalCount` pagination
 fallback, making paging 1-based, disabling the read-only guard, misclassifying
 iPads as Macs, treating an unparseable timestamp as a recent check-in, letting an

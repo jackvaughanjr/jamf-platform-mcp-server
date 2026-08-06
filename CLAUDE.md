@@ -78,7 +78,7 @@ Only JSON-RPC may go to stdout. Logs go to stderr. `dotenv` is loaded with
    Then verify it live: the docs have also been wrong about path shape.
 2. Pass `version` explicitly; Jamf Pro versions are per-resource. For Jamf Pro
    Classic use `style: 'classic'`, which builds `/tenant/{tenantId}/{resource}` with
-   no version and fills the tenant in — reaching Classic through `rawPath` means the
+   no version and fills the tenant in. Reaching Classic through `rawPath` means the
    caller supplying the tenant id, and an empty one yields `/tenant//{resource}` and a
    400 that blames token context rather than the blank value.
 3. Prefer extending `platformRequest` usage over adding a typed tool until a
@@ -86,7 +86,7 @@ Only JSON-RPC may go to stdout. Logs go to stderr. `dotenv` is loaded with
    ([JPM-0003](decisions/JPM-0003-passthrough-plus-selective-typed-tools.md)).
 4. `platformRequest` is **GET-only** and exposes no `method` or `body`
    ([JPM-0007](decisions/JPM-0007-write-path-posture.md)). Any write is a named typed
-   tool with a narrow schema, never the passthrough — and destructive scopes are never
+   tool with a narrow schema, never the passthrough. Destructive scopes are never
    granted to this server at all, so a write tool needs a superseding ADR first.
 5. `requestAll` infers its paging family from the service segment. Classic throws
    rather than returning `[]`, and `ddm/report` uses `size` rather than `page-size`.
