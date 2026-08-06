@@ -54,7 +54,7 @@ src/
   platform-client.ts    every gateway concern — auth, token cache, URL shapes, paging
   config.ts             environment validation (zod)
   fleet.ts              pure fleet aggregation — no client, no clock, no I/O
-  automations.ts        script/policy auditing: expensive-command scan, policy cadence
+  automations.ts        script/policy auditing, criteria projection, inventory cost
   declaration-scope.ts  pure DDM rollup: one declaration across many devices
   references.ts         pure reference analysis + smart-group dependency graph
   *.test.ts             unit tests (vitest)
@@ -75,7 +75,7 @@ scripts/
 .githooks/pre-commit    rejects force-added ignored files; enforces ADR immutability
 ```
 
-## Current state (as of 2026-08-05)
+## Current state (as of 2026-08-06)
 
 Working and confirmed against a live tenant:
 
@@ -86,8 +86,10 @@ Working and confirmed against a live tenant:
 | `devices` | tenant | `devices` | full paging envelope; spans macOS **and** iOS |
 | `device-groups` | tenant | `device-groups` | full envelope; exposes `memberCount` |
 | `pro` | tenant | 300+ resources | the Jamf Pro API in full |
-| `proclassic` | raw | `/tenant/{t}/{resource}` | Jamf Pro Classic — no version segment |
+| `proclassic` | classic | `/tenant/{t}/{resource}` | Jamf Pro Classic — no version segment |
 | `ddm/report` | tenant | `devices/{id}/channels` | Declaration Reporting |
+| `ddm/report` | tenant | `devices/{id}/declarations` | per-device declaration state; `filter` required |
+| `ddm/report` | tenant | `declarations/{id}/devices` | the same state per declaration, across devices |
 
 **Compliance Benchmarks** has a correct, documented path but returns 500
 `{"error":"Upstream host lookup failed"}` — the gateway routes it and cannot reach
@@ -200,7 +202,7 @@ against it would be a false promise.
 ## Testing
 
 ```bash
-npm test              # vitest, 119 tests
+npm test              # vitest, 270 tests
 npm run typecheck
 DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix, no credentials needed
 ```
