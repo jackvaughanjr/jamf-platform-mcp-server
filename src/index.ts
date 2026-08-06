@@ -39,6 +39,12 @@ import {
   type DeviceRecord,
 } from './fleet.js';
 import { JamfPlatformApiError, JamfPlatformClient } from './platform-client.js';
+import {
+  buildGroupDependencyGraph,
+  findGroupBlastRadius,
+  findGroupDependencyCycles,
+  findObjectReferences,
+} from './references.js';
 
 function requireConfig() {
   try {
@@ -181,6 +187,39 @@ server.registerTool(
     }
   },
 );
+
+/**
+ * Fetches a Jamf Pro Classic collection and unwraps its named-key envelope.
+ *
+ * Module-level because three tools now need it and each had grown its own copy —
+ * `classicList` and `classicList2` differed only in scope, and a third would have
+ * become `classicList3`.
+ *
+ * Classic wraps a collection in the PLURAL key in JSON (`{"scripts": [...]}`) while
+ * the reference pages document the singular XML element plus a `size` count. Both
+ * spellings are tried, and a shape that matches neither throws rather than yielding
+ * an empty list — a false all-clear from an auditing tool is worse than an error.
+ */
+async function classicList<T>(resource: string, keys: string[]): Promise<T[]> {
+  const body = await client.request<Record<string, unknown>>({
+    service: 'proclassic',
+    rawPath: `/tenant/${config.tenantId}/${resource}`,
+  });
+  return extractClassicList<T>(body, keys).items;
+}
+
+/** Fetches one Classic record by id and unwraps its singular named key. */
+async function classicDetail<T>(
+  resource: string,
+  id: number | string,
+  keys: string[],
+): Promise<T | undefined> {
+  const body = await client.request<Record<string, unknown>>({
+    service: 'proclassic',
+    rawPath: `/tenant/${config.tenantId}/${resource}/id/${id}`,
+  });
+  return extractClassicDetail<T>(body, keys);
+}
 
 /** Describes a rejected fan-out leg without pretending it succeeded. */
 function legError(error: unknown): string {
@@ -526,26 +565,6 @@ server.registerTool(
      * are tried, and an unreadable shape throws rather than yielding an empty
      * list — see extractClassicList.
      */
-    async function classicList<T>(resource: string, keys: string[]): Promise<T[]> {
-      const body = await client.request<Record<string, unknown>>({
-        service: 'proclassic',
-        rawPath: `/tenant/${config.tenantId}/${resource}`,
-      });
-      return extractClassicList<T>(body, keys).items;
-    }
-
-    async function classicDetail<T>(
-      resource: string,
-      id: number | string,
-      keys: string[],
-    ): Promise<T | undefined> {
-      const body = await client.request<Record<string, unknown>>({
-        service: 'proclassic',
-        rawPath: `/tenant/${config.tenantId}/${resource}/id/${id}`,
-      });
-      return extractClassicDetail<T>(body, keys);
-    }
-
     try {
       const [scriptStubs, eaStubs, policyStubs] = await Promise.all([
         classicList<{ id: number; name: string }>('scripts', ['scripts', 'script']).catch((e) => {
@@ -787,23 +806,15 @@ server.registerTool(
     // permission to disable a field something depends on.
     const expansion = expandInventoryQuery(query);
 
-    async function classicList2<T>(resource: string, keys: string[]): Promise<T[]> {
-      const body = await client.request<Record<string, unknown>>({
-        service: 'proclassic',
-        rawPath: `/tenant/${config.tenantId}/${resource}`,
-      });
-      return extractClassicList<T>(body, keys).items;
-    }
-
     try {
       const [groupStubs, searchStubs] = await Promise.all([
-        classicList2<{ id: number; name: string }>('computergroups', ['computer_groups', 'computer_group']).catch(
+        classicList<{ id: number; name: string }>('computergroups', ['computer_groups', 'computer_group']).catch(
           (e) => {
             errors.computerGroups = legError(e);
             return [];
           },
         ),
-        classicList2<{ id: number; name: string }>('advancedcomputersearches', [
+        classicList<{ id: number; name: string }>('advancedcomputersearches', [
           'advanced_computer_searches',
           'advanced_computer_search',
         ]).catch((e) => {
@@ -1154,6 +1165,219 @@ server.registerTool(
 
       return asContent({
         ...report,
+        ...(Object.keys(errors).length > 0 ? { partialFailures: errors } : {}),
+      });
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+/**
+ * "What breaks if I delete this?" — the question Jamf has no built-in answer to.
+ *
+ * Jamf Nation, on finding dependants before a delete: "There is no built-in feature
+ * for this, which is why there have been feature requests." Two community tools grew
+ * to fill it — Prune, which deletes, and Spruce, archived in 2023. This project can
+ * never delete anything (JPM-0007), so it builds the read-only half, which is also
+ * the half nobody maintains.
+ *
+ * Prune's published caveat is the bar to clear: it "may identify some items as unused
+ * that are actually in use due to API limitations." So coverage is a typed field here,
+ * not prose. `strength` reaches `'clear'` only when every source kind in the matrix
+ * was supplied AND every object read had a container this code could parse; anything
+ * less is `'partial-clear'`, and reading nothing is `'unchecked'` — explicitly not a
+ * shade of "no references found".
+ *
+ * Only three source kinds are wired to live routes, because only three are confirmed
+ * reachable on this gateway. `osxconfigurationprofiles` is wired on the strength of
+ * its own reference page (path shape confirmed, envelope key unverified) and settles
+ * on first call. The rest are declared unavailable with a reason rather than probed
+ * blind — CLAUDE.md requires reading an endpoint's page before probing it, and
+ * guessing four resource paths is exactly what produced JPM-0005.
+ */
+server.registerTool(
+  'findObjectReferences',
+  {
+    title: 'Find what references an object',
+    description:
+      'Find everything that references a package, computer group or script — the ' +
+      'check to run before deleting or changing one. Reports where each reference ' +
+      'sits (scope, exclusion, script slot, group criterion) and distinguishes an ' +
+      'EXCLUSION from an inclusion, since those mean opposite things. Names are ' +
+      'matched exactly and case-insensitively, never as substrings. Critically, it ' +
+      'reports which source kinds it could NOT check and what that means: a "clear" ' +
+      'verdict requires full coverage, so most answers are partial-clear and must not ' +
+      'be read as permission to delete. Coverage is in the `strength` field.',
+    inputSchema: {
+      kind: z.enum(['package', 'computerGroup', 'script']).describe('What kind of object to look for references to'),
+      id: z.string().optional().describe('The object id. Supply this, or name, or both.'),
+      name: z.string().optional().describe('The object name, matched exactly (case-insensitively)'),
+      concurrency: z.number().int().positive().max(16).optional().describe('Parallel detail requests. Defaults to 6.'),
+    },
+  },
+  async ({ kind, id, name, concurrency }) => {
+    const parallel = concurrency ?? 6;
+    const errors: Record<string, string> = {};
+
+    /** Fetches a Classic collection's details, or describes why it could not. */
+    async function classicSource(
+      label: string,
+      resource: string,
+      listKeys: string[],
+      detailKeys: string[],
+    ): Promise<unknown[] | { unavailable: true; reason: string }> {
+      try {
+        const stubs = await classicList<{ id: number; name: string }>(resource, listKeys);
+        const details = await mapWithConcurrency(stubs, parallel, async (stub) => {
+          try {
+            return await classicDetail<unknown>(resource, stub.id, detailKeys);
+          } catch (error) {
+            // One unreadable record must not fail the sweep, but it must not read as
+            // "no reference here" either — it lands in the unreadable count.
+            errors[`${label}:${stub.id}`] = legError(error);
+            return undefined;
+          }
+        });
+        return details.filter((d): d is unknown => d !== undefined);
+      } catch (error) {
+        const reason = legError(error);
+        errors[label] = reason;
+        // Never [] on failure: an empty collection reads as "checked, nothing found".
+        return { unavailable: true, reason };
+      }
+    }
+
+    try {
+      const [policies, groups, searches, profiles] = await Promise.all([
+        classicSource('policies', 'policies', ['policies', 'policy'], ['policy']),
+        classicSource('computergroups', 'computergroups', ['computer_groups', 'computer_group'], ['computer_group']),
+        classicSource(
+          'advancedcomputersearches',
+          'advancedcomputersearches',
+          ['advanced_computer_searches', 'advanced_computer_search'],
+          ['advanced_computer_search'],
+        ),
+        // Path shape confirmed from its own reference page; the envelope key is the
+        // documented XML singular, so both spellings are offered and the first live
+        // call settles which one Classic actually returns in JSON.
+        classicSource(
+          'osxconfigurationprofiles',
+          'osxconfigurationprofiles',
+          ['os_x_configuration_profiles', 'os_x_configuration_profile'],
+          ['os_x_configuration_profile'],
+        ),
+      ]);
+
+      const unverified = (what: string) => ({
+        unavailable: true as const,
+        reason:
+          `not checked: the ${what} route has not been confirmed reachable on this gateway, ` +
+          'and its reference page has not been read. Probing without reading the page is what ' +
+          'produced JPM-0005, so it is left unchecked rather than guessed.',
+      });
+
+      const report = findObjectReferences(
+        { kind, id, name },
+        {
+          policies,
+          computerGroups: groups,
+          advancedComputerSearches: searches,
+          configurationProfiles: profiles,
+          restrictedSoftware: unverified('restrictedsoftware'),
+          patchPolicies: unverified('patchpolicies'),
+          eBooks: unverified('ebooks'),
+          appInstallers: unverified('app-installers'),
+          computerPrestages: unverified('Jamf Pro API computer-prestages'),
+          blueprints: unverified("blueprints group-scope container shape"),
+        },
+      );
+
+      return asContent({
+        ...report,
+        ...(Object.keys(errors).length > 0 ? { partialFailures: errors } : {}),
+      });
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+/**
+ * Smart-group dependency graph: cycles, dangling references, and blast radius.
+ *
+ * A Jamf Nation audit turned up "over 20 smart groups that include other smart groups
+ * that are dependent on the first." The UI cannot show this shape at all, and the data
+ * is right there — a criterion named `Computer Group` carries the referenced group's
+ * NAME in its value.
+ *
+ * Both routes here are confirmed reachable, which makes this the safer of the two
+ * reference tools. `is_smart` and `criteria` come only from the detail record, never
+ * the list, so every group costs a request.
+ */
+server.registerTool(
+  'findGroupDependencies',
+  {
+    title: 'Find smart group dependencies',
+    description:
+      'Map which computer groups depend on which others, via "Computer Group" ' +
+      'membership criteria. Reports dependency cycles as their actual node paths, ' +
+      'references to group names that do not exist, and — given a group — its blast ' +
+      'radius: everything that transitively changes when that group\'s membership ' +
+      'changes, with depth. A "not member of" criterion is reported distinctly from ' +
+      '"member of", since treating one as the other inverts the meaning. Groups whose ' +
+      'detail could not be fetched are named, because a group absent from the graph ' +
+      'must not read as independent.',
+    inputSchema: {
+      group: z
+        .string()
+        .optional()
+        .describe('Optional: a group name to compute a blast radius for. Omit for the whole graph.'),
+      concurrency: z.number().int().positive().max(16).optional().describe('Parallel detail requests. Defaults to 6.'),
+    },
+  },
+  async ({ group, concurrency }) => {
+    const parallel = concurrency ?? 6;
+    const errors: Record<string, string> = {};
+
+    try {
+      const stubs = await classicList<{ id: number; name: string }>('computergroups', [
+        'computer_groups',
+        'computer_group',
+      ]);
+
+      const details = (
+        await mapWithConcurrency(stubs, parallel, async (stub) => {
+          try {
+            return await classicDetail<unknown>('computergroups', stub.id, ['computer_group']);
+          } catch (error) {
+            errors[`computerGroup:${stub.id}`] = legError(error);
+            return undefined;
+          }
+        })
+      ).filter((d): d is unknown => d !== undefined);
+
+      const graph = buildGroupDependencyGraph(details);
+      const cycles = findGroupDependencyCycles(graph);
+      const radius = group ? findGroupBlastRadius(graph, group) : undefined;
+
+      return asContent({
+        scanned: { groupsListed: stubs.length, detailsRead: details.length },
+        graph: { nodes: graph.nodes, edges: graph.edges },
+        dangling: graph.dangling,
+        unreadable: graph.unreadable,
+        duplicateNames: graph.duplicateNames,
+        cycles,
+        ...(radius ? { blastRadius: radius } : {}),
+        // A group whose detail failed is missing from the graph entirely, and its
+        // absence would otherwise read as "depends on nothing".
+        ...(details.length < stubs.length
+          ? {
+              incomplete:
+                `${stubs.length - details.length} group(s) could not be read and are ABSENT from ` +
+                'this graph. Their dependencies are unknown, not empty — see partialFailures.',
+            }
+          : {}),
         ...(Object.keys(errors).length > 0 ? { partialFailures: errors } : {}),
       });
     } catch (error) {

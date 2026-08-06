@@ -17,6 +17,40 @@ for a search term that could never have matched.
 
 ### Added
 
+- **`findObjectReferences`** — what references a package, computer group or script,
+  the check to run before deleting one. Jamf has no built-in answer ("There is no
+  built-in feature for this, which is why there have been feature requests" —
+  Jamf Nation); the two community tools that filled the gap are **Prune**, which
+  deletes, and **Spruce**, archived in 2023. This project can never delete
+  ([JPM-0007](decisions/JPM-0007-write-path-posture.md)), so it builds the read-only
+  half. Prune's own caveat — it "may identify some items as unused that are actually
+  in use due to API limitations" — is the bar: coverage is a typed `strength` field
+  here, and `'clear'` is reachable only when every source kind in the matrix was
+  supplied *and* every object read had a parseable container. `'unchecked'` is
+  explicitly not a shade of "no references found". An **exclusion** is reported
+  distinctly from an inclusion, and "not member of" from "member of", since
+  conflating either inverts the meaning. Names match exactly and case-insensitively,
+  never as substrings — a substring match across policy scopes would make the
+  delete-safety answer useless.
+  Four of ten source kinds are wired live: `policies`, `computergroups` and
+  `advancedcomputersearches` are confirmed reachable, and `osxconfigurationprofiles`
+  is wired from its own reference page (path confirmed, envelope key unverified). The
+  other six are declared unavailable **with a reason** rather than probed blind —
+  guessing resource paths is what produced JPM-0005.
+- **`findGroupDependencies`** — the smart-group dependency graph the Jamf UI cannot
+  show. A Jamf Nation audit found "over 20 smart groups that include other smart
+  groups that are dependent on the first". Reports dependency cycles as their actual
+  node paths (not a boolean), references to group names that do not exist, duplicate
+  names, and a blast radius with per-dependant depth. `hasCycle` comes from a separate
+  never-truncated traversal, so `hasCycle: true` with an empty `cycles` list is a
+  meaningful state rather than a contradiction. Groups whose detail could not be
+  fetched are named, because a group absent from the graph must not read as
+  independent.
+- **`getDeclarationScope`** — every device reporting a given declaration, with
+  failures grouped by cause so one problem affecting forty Macs reads as one problem.
+  Devices are resolved from bare UUIDs to names and serials. The default filter is
+  `deviceId==*`, since `declarationIdentifier` is a path segment on this route and not
+  an allowed filter field.
 - **`getDeviceDeclarationState`** — the first typed tool for Declaration Reporting,
   and the companion to `listBlueprints`: a Blueprint deploys declarations, and this
   reports whether they landed. Resolves a device by UUID or by a substring of name,
