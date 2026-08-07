@@ -76,7 +76,9 @@ Only JSON-RPC may go to stdout. Logs go to stderr. `dotenv` is loaded with
    unreachable
    ([JPM-0006](decisions/JPM-0006-classic-and-declaration-reporting-are-supported.md)).
    Then verify it live: the docs have also been wrong about path shape.
-2. Pass `version` explicitly; Jamf Pro versions are per-resource. For Jamf Pro
+2. Pass `version` explicitly; Jamf Pro versions are per **operation**, not merely per
+   resource — `computer-prestages` is v3 for CRUD and v2 for its own scope
+   sub-resource. Read the version off the operation page every time. For Jamf Pro
    Classic use `style: 'classic'`, which builds `/tenant/{tenantId}/{resource}` with
    no version and fills the tenant in. Reaching Classic through `rawPath` means the
    caller supplying the tenant id, and an empty one yields `/tenant//{resource}` and a

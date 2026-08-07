@@ -118,6 +118,73 @@ never tried. It returns 200.
 reach its own backend. Nothing a client can do; report it to Jamf. A canary probe
 remains in the discovery script.
 
+### Documented but not yet called, read from the operation pages 2026-08-07
+
+Paths below come from each operation's own reference page. They have **not** been
+verified against a live tenant, which is the difference between this table and the
+confirmed one above. Wired with graceful degradation, so a wrong path reports its real
+error rather than reading as "no references found".
+
+| resource | service | style | list | detail | list key | detail key |
+|---|---|---|---|---|---|---|
+| `restrictedsoftware` | `proclassic` | classic | `/restrictedsoftware` | `/restrictedsoftware/id/{id}` | **`restricted_software`** | `restricted_software` |
+| `patchpolicies` | `proclassic` | classic | `/patchpolicies` | `/patchpolicies/id/{id}` | `patch_policies`? | `patch_policy` |
+| `ebooks` | `proclassic` | classic | `/ebooks` | `/ebooks/id/{id}` | `ebooks` | `ebook` |
+| `packages` | `proclassic` | classic | `/packages` | `/packages/id/{id}` | `packages` | `package` |
+| `computer-prestages` | `pro` | tenant **v3** | `/computer-prestages` | `/computer-prestages/{id}` | `results` + `totalCount` | bare object |
+
+All three Classic resources also expose `/{resource}/name/{name}`, which resolves an
+object by name without listing everything.
+
+**`restricted_software` breaks the pluralisation rule.** Its list schema declares an
+explicit `"xml": {"name": "restricted_software"}`, so the envelope is the *singular*
+form even for a collection, derived from the XML root rather than from pluralising the
+path segment `restrictedsoftware`. It is the only one of these pages that declares an
+explicit `xml.name`. Any code computing an envelope key from the URL segment misses it.
+
+**`patch_policies` is the one key not to trust.** Its page publishes no `xml.name` and
+the key is inferred from the component schema name. Shipping Classic has a long-standing
+quirk of returning `"patch policies"` *with a space* here. Prefer the Jamf Pro API's
+`/api/pro/v2/tenant/{t}/patch-policies`, which returns an unambiguous
+`{totalCount, results[]}`.
+
+**A patch policy carries no package reference at all.** `patch_policy` has exactly four
+properties — `general`, `scope`, `software_title_configuration_id`, `user_interaction` —
+and the word `package` appears nowhere in the Classic OpenAPI document. The package
+lives on the software title configuration, at
+`/api/pro/v3/tenant/{t}/patch-software-title-configurations/{id}`, whose `packages[]`
+carry `packageId`. So a package-to-patching reference check must route through the
+configuration; checking patch policies alone will always find nothing.
+
+**A computer prestage records packages as `customPackageIds`, an array of STRINGS**,
+while Classic package ids are integers. A reference check comparing them needs a cast.
+Prestages also carry `prestageInstalledProfileIds`, making them a reference source for
+configuration profiles as well.
+
+**Blueprint scope uses Device Groups service UUIDs, not Classic computer-group ids.**
+`BlueprintDetail.scope.deviceGroups[]` holds UUID strings from the `device-groups`
+service. A Classic integer group id will never match one, so a blueprint reference check
+has to resolve through Device Groups first. That is an architectural gap, not a missing
+field name.
+
+**App Installers is not documented on this gateway.** A sweep of the full 2,011-line
+reference index found no `installer`, `catalog` or `titles` slug, the direct Jamf Pro
+API index has none either, and four plausible candidate paths returned 404. The
+endpoint exists in shipping Jamf Pro, so this is a documentation gap rather than an
+absent feature — which is exactly the case where guessing a path produced JPM-0005.
+It stays unchecked.
+
+### Two traps in the documentation index files
+
+**`reference/jamf-pro-api/llms.txt` is a decoy.** It is 29 lines and contains only patch
+software title configurations. The real Jamf Pro API surface — 1,288 lines, including
+prestages, packages and ebooks — lives under the **`jamf-pro`** category index. Starting
+from the obviously-named file leads to the conclusion that the Pro API is nearly empty.
+Use the full `reference/llms.txt` instead.
+
+**`getblueprint.md` fences its OpenAPI block with four backticks** where every other page
+uses three, so a three-backtick extractor returns empty rather than failing.
+
 ### Confirmed Classic routes under `proclassic`
 
 All verified live. Path shape is `/api/proclassic/tenant/{tenantId}/{resource}`,
@@ -163,8 +230,18 @@ the scope name yields `/api/pro/...` and a 404 that reads like a permissions err
 components is `blueprint-components`, not `components`, despite sitting under the
 `blueprints` service.
 
-**Jamf Pro versions are per-resource.** `account-groups` is v1, `enrollment` v3,
-`computers-inventory` v4. Never carry a version from one resource to the next.
+**Jamf Pro versions are per-OPERATION, not merely per-resource.** `account-groups` is
+v1, `enrollment` v3, `computers-inventory` v4 — and `computer-prestages` is **v3 for
+CRUD while its own scope sub-resource is v2**, published on the same reference page:
+
+```
+GET /api/pro/v3/tenant/{t}/computer-prestages          list and detail
+GET /api/pro/v2/tenant/{t}/computer-prestages/{id}/scope
+```
+
+So deriving a version from a resource name is wrong, not just risky. This corrects an
+earlier statement here that versions vary by resource, which implied one version per
+resource. Read the version off the operation page every time.
 
 ## Read the endpoint reference page first
 

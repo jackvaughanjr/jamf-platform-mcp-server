@@ -69,9 +69,10 @@ export interface RequestOptions {
   /**
    * API version segment, defaults to "v1".
    *
-   * Versions are PER-RESOURCE on Jamf Pro, not global: `account-groups` is v1,
-   * `enrollment` v3, `computers-inventory` v4. Never assume v1 carries over
-   * from one resource to the next.
+   * Versions are PER-OPERATION on Jamf Pro, not global and not even per-resource:
+   * `account-groups` is v1, `enrollment` v3, `computers-inventory` v4, and
+   * `computer-prestages` is v3 for CRUD while its own scope sub-resource is v2.
+   * Never assume a version carries over, even within one resource.
    */
   version?: string;
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
