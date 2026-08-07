@@ -161,7 +161,16 @@ export function inferPagingFamily(service: string): PagingFamily {
 }
 
 export interface RequestAllOptions extends RequestOptions {
-  /** Items per request. Defaults to 100. */
+  /**
+   * Items per request. Defaults to 100.
+   *
+   * Whatever the family, this is the value that reaches the wire — `page-size` on
+   * the common family, `size` on Declaration Reporting. Lowering it is the only
+   * way to exercise multi-page traversal against a live tenant: every collection
+   * observed so far fits inside one page of 100, so `pageSize: 2` against a
+   * 35-record collection is what turns "the pager presumably works" into a
+   * one-command test. It is a real parameter, not a tuning knob.
+   */
   pageSize?: number;
   /** Hard stop, so a contract change cannot become an infinite loop. Defaults to 100. */
   maxPages?: number;
@@ -176,6 +185,65 @@ export interface RequestAllOptions extends RequestOptions {
    * guard is aimed at.
    */
   pagingFamily?: PagingFamily;
+}
+
+/**
+ * Why a page walk stopped.
+ *
+ * Recorded because the three reasons carry very different amounts of evidence.
+ * `hasNext` is the gateway saying "that was the last page". `totalCount` is the
+ * walk having collected everything the gateway claimed existed. `emptyPage` is
+ * neither — it is an inference from a page that came back with nothing, which is
+ * the backstop for a response carrying no completeness signal at all.
+ */
+export type PageWalkStop = 'hasNext' | 'totalCount' | 'emptyPage';
+
+/**
+ * What a full page walk collected, alongside what the gateway said there was.
+ *
+ * `requestAll` returns only the items, which means a caller holding 35 records
+ * cannot tell whether the gateway said there were 35 or said there were 500 and
+ * the walk stopped early. The runaway case is already loud — exceeding `maxPages`
+ * throws — but a walk that ends early for any other reason is silent, and a short
+ * answer that looks complete is the same class of bug as an empty result from a
+ * helper that could not read its input.
+ */
+export interface PagedWalk<T> {
+  /** Everything collected, in page order. Identical to what `requestAll` returns. */
+  items: T[];
+  /** `items.length`, so a caller comparing it against the reported count need not index. */
+  collectedCount: number;
+  /**
+   * `totalCount` as most recently reported by the gateway, or undefined if no page
+   * carried one (`devices` pages with `hasNext`; a bare-array page has no envelope
+   * at all). Last-seen rather than first-seen: a walk is judged against the
+   * freshest number the gateway gave, not a stale one from page 0.
+   */
+  reportedTotalCount?: number;
+  /** Gateway requests issued. Token requests are not counted. */
+  pagesFetched: number;
+  /** Which of the three termination signals ended the walk. */
+  stoppedBecause: PageWalkStop;
+  /**
+   * Whether the collection was exhausted.
+   *
+   * Deliberately tri-state, and deliberately not optional — a caller must handle
+   * `undefined`, which means the gateway offered nothing to check the walk
+   * against, so completeness is UNKNOWN. Collapsing unknown into `true` would be
+   * the false all-clear this whole type exists to prevent.
+   */
+  complete: boolean | undefined;
+  /**
+   * How many records the gateway reported that the walk did not collect. Present
+   * only when positive — this is the dangerous direction, an answer that may be
+   * missing records.
+   *
+   * The other direction is not an error and gets no field: collecting MORE than
+   * the reported count means the count was stale or the collection grew mid-walk,
+   * and no caller is at risk of acting on records that are not there. Compare
+   * `collectedCount` against `reportedTotalCount` if that matters.
+   */
+  shortfall?: number;
 }
 
 export class JamfPlatformApiError extends Error {
@@ -346,8 +414,28 @@ export class JamfPlatformClient {
    * neither.
    *
    * `page` is 0-based in every family.
+   *
+   * This returns the items alone, which is what nearly every caller wants. When
+   * the answer's *completeness* matters — an audit, or anything that reports a
+   * count back to a user — use `requestAllWithCount`, which also hands back what
+   * the gateway said there was. A short walk still logs to stderr either way, so
+   * this method is quiet but never silent.
    */
   async requestAll<T = unknown>(options: RequestAllOptions): Promise<T[]> {
+    return (await this.requestAllWithCount<T>(options)).items;
+  }
+
+  /**
+   * Follows pagination and returns every item **plus what the gateway reported**.
+   *
+   * Same walk as `requestAll` — this is the implementation, and `requestAll`
+   * returns `.items` from it — so the two can never disagree about the records
+   * themselves. A separate method rather than a changed return type because ten
+   * call sites use the array directly; and a separate method rather than an
+   * out-parameter because the evidence a caller needs to judge completeness
+   * should be in the value it awaits, not in an object it remembered to pass.
+   */
+  async requestAllWithCount<T = unknown>(options: RequestAllOptions): Promise<PagedWalk<T>> {
     const family = options.pagingFamily ?? inferPagingFamily(options.service);
 
     // Before the token request, let alone the page request: there is nothing to
@@ -369,6 +457,12 @@ export class JamfPlatformClient {
     const maxPages = options.maxPages ?? 100;
     const collected: T[] = [];
 
+    // Last-seen rather than the current page's, so a walk that ends on a page
+    // omitting `totalCount` is still judged against the number the gateway did
+    // give. Termination below deliberately still reads the CURRENT page, leaving
+    // that behaviour exactly as it was.
+    let reportedTotalCount: number | undefined;
+
     for (let page = 0; page < maxPages; page += 1) {
       const query: NonNullable<RequestOptions['query']> = { ...options.query, page };
       if (family === 'size') {
@@ -378,6 +472,11 @@ export class JamfPlatformClient {
         delete query['page-size'];
         query.size = pageSize;
       } else {
+        // The mirror image, for the same reason. If a stray `size` were honoured
+        // by a segment nobody has characterised, it would quietly override the
+        // `page-size` this walk depends on and cap the answer — the same silent
+        // truncation, arriving from the other direction.
+        delete query.size;
         query['page-size'] = pageSize;
       }
 
@@ -389,22 +488,93 @@ export class JamfPlatformClient {
 
       const batch = this.extractBatch<T>(body, options);
       collected.push(...batch);
+      if (typeof body?.totalCount === 'number') reportedTotalCount = body.totalCount;
+
+      const finish = (stoppedBecause: PageWalkStop): PagedWalk<T> =>
+        this.finishWalk(collected, reportedTotalCount, page + 1, stoppedBecause, pageSize, options);
 
       // Explicit signal wins when the segment provides it.
       if (typeof body?.hasNext === 'boolean') {
-        if (!body.hasNext) return collected;
+        if (!body.hasNext) return finish('hasNext');
       } else if (typeof body?.totalCount === 'number') {
-        if (collected.length >= body.totalCount) return collected;
+        if (collected.length >= body.totalCount) return finish('totalCount');
       }
 
       // No progress and no usable signal — stop rather than loop forever.
-      if (batch.length === 0) return collected;
+      if (batch.length === 0) return finish('emptyPage');
     }
 
     throw new Error(
       `requestAll exceeded maxPages (${maxPages}) for ${options.service}/${options.rawPath ?? options.resource}. ` +
         'Raise maxPages deliberately, or check whether the pagination contract changed.',
     );
+  }
+
+  /**
+   * Assembles the walk result, and refuses to let a short walk pass unremarked.
+   *
+   * A shortfall does NOT throw. Three reasons, in order of weight:
+   *
+   * 1. Throwing would turn today's partial answer into no answer for ten existing
+   *    call sites, several of which are `allSettled` legs — `getFleetOverview`
+   *    would lose a whole section because the gateway's count was off by one.
+   *    Fewer records than promised is still an answer; zero records is not.
+   * 2. A disagreement is not necessarily a fault. The collection can change
+   *    between page 0 and page N — a device enrols or is removed mid-walk — so a
+   *    count observed early can legitimately not match a length measured late.
+   *    Making an ordinary race fatal would be wrong.
+   * 3. The caller is the only one who can weigh it. A search tool showing 34 of
+   *    35 devices is fine; an audit asserting nothing is out of compliance is
+   *    not. So the evidence is returned, not adjudicated here.
+   *
+   * What it must not do is stay quiet, which is why the stderr line is
+   * unconditional rather than something `requestAll` opts into: the array-only
+   * callers are precisely the ones with no other way to find out.
+   */
+  private finishWalk<T>(
+    collected: T[],
+    reportedTotalCount: number | undefined,
+    pagesFetched: number,
+    stoppedBecause: PageWalkStop,
+    pageSize: number,
+    options: RequestAllOptions,
+  ): PagedWalk<T> {
+    const collectedCount = collected.length;
+    const shortfall =
+      reportedTotalCount !== undefined && collectedCount < reportedTotalCount
+        ? reportedTotalCount - collectedCount
+        : undefined;
+
+    // `undefined` where the gateway said nothing to check against. An explicit
+    // hasNext:false IS the gateway saying the collection is exhausted, so that
+    // counts as known-complete even with no totalCount to corroborate it.
+    const complete =
+      reportedTotalCount === undefined
+        ? stoppedBecause === 'hasNext'
+          ? true
+          : undefined
+        : collectedCount >= reportedTotalCount;
+
+    if (shortfall !== undefined) {
+      // stderr, never stdout — stdout is the MCP transport.
+      console.error(
+        `requestAll collected ${collectedCount} of the ${reportedTotalCount} records the gateway ` +
+          `reported for ${options.service}/${options.rawPath ?? options.resource} ` +
+          `(stopped after ${pagesFetched} page(s) of ${pageSize} because ${stoppedBecause}). ` +
+          'Treat this answer as possibly incomplete; requestAllWithCount returns the same ' +
+          'numbers as data.',
+      );
+    }
+
+    return {
+      items: collected,
+      collectedCount,
+      reportedTotalCount,
+      pagesFetched,
+      stoppedBecause,
+      complete,
+      ...(shortfall === undefined ? {} : { shortfall }),
+    };
   }
 
   /**

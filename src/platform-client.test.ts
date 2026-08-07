@@ -465,6 +465,311 @@ describe('requestAll paging families', () => {
   });
 });
 
+describe('requestAllWithCount surfaces what the gateway reported', () => {
+  it('returns the gateway totalCount alongside the items requestAll would give', async () => {
+    const client = new JamfPlatformClient(config);
+    stubTokenThen(
+      res({ results: ['a', 'b'], totalCount: 3 }),
+      res({ results: ['c'], totalCount: 3 }),
+    );
+
+    const walk = await client.requestAllWithCount<string>({
+      service: 'blueprints',
+      resource: 'blueprints',
+      pageSize: 2,
+    });
+
+    expect(walk.items).toEqual(['a', 'b', 'c']);
+    expect(walk.collectedCount).toBe(3);
+    expect(walk.reportedTotalCount).toBe(3);
+    expect(walk.pagesFetched).toBe(2);
+    expect(walk.stoppedBecause).toBe('totalCount');
+    expect(walk.complete).toBe(true);
+    expect(walk.shortfall).toBeUndefined();
+  });
+
+  // The gap this exists for: a walk that ends early for a reason other than
+  // maxPages. Exceeding maxPages already throws, so the runaway case is loud; this
+  // one currently returns two records with no hint that the gateway said forty.
+  it('reports a shortfall rather than throwing when a walk ends short', async () => {
+    const client = new JamfPlatformClient(config);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    fetchMock.mockImplementation(async (url: unknown) => {
+      const s = String(url);
+      if (s.endsWith('/auth/token')) return res(tokenBody);
+      const page = Number(new URL(s).searchParams.get('page'));
+      // Claims forty, hands back one short page and then nothing.
+      return res(page === 0 ? { results: [1, 2], totalCount: 40 } : { results: [], totalCount: 40 });
+    });
+
+    const walk = await client.requestAllWithCount<number>({
+      service: 'blueprints',
+      resource: 'blueprints',
+      pageSize: 2,
+    });
+
+    expect(walk.items).toEqual([1, 2]);
+    expect(walk.reportedTotalCount).toBe(40);
+    expect(walk.shortfall).toBe(38);
+    expect(walk.complete).toBe(false);
+    expect(walk.stoppedBecause).toBe('emptyPage');
+
+    // A partial answer is still an answer. Throwing here would cost ten existing
+    // call sites — several of them allSettled legs — the records they did get.
+    await expect(
+      client.requestAll({ service: 'blueprints', resource: 'blueprints', pageSize: 2 }),
+    ).resolves.toEqual([1, 2]);
+  });
+
+  // The array-only callers have no other way to learn the walk came up short, so
+  // quiet is acceptable and silent is not.
+  it('logs a short walk to stderr, naming both counts, and writes nothing to stdout', async () => {
+    const client = new JamfPlatformClient(config);
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    stubTokenThen(
+      res({ results: [1, 2], totalCount: 40 }),
+      res({ results: [], totalCount: 40 }),
+    );
+
+    await client.requestAll({ service: 'blueprints', resource: 'blueprints', pageSize: 2 });
+
+    expect(stdout).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain('collected 2');
+    expect(message).toContain('40');
+    expect(message).toContain('blueprints/blueprints');
+  });
+
+  // "The gateway told me nothing" must not read the same as "the gateway confirmed
+  // it was everything" — the false all-clear, in type form.
+  it('leaves completeness undefined when no page carried a totalCount', async () => {
+    const client = new JamfPlatformClient(config);
+    stubTokenThen(res({ results: ['x'] }), res({ results: [] }));
+
+    const walk = await client.requestAllWithCount<string>({ service: 'pro', resource: 'buildings' });
+
+    expect(walk.items).toEqual(['x']);
+    expect(walk.reportedTotalCount).toBeUndefined();
+    expect(walk.stoppedBecause).toBe('emptyPage');
+    expect(walk.complete).toBeUndefined();
+    // Present-and-undefined, not absent: a caller must handle the unknown case.
+    expect('complete' in walk).toBe(true);
+  });
+
+  it('treats hasNext:false as known-complete even with no totalCount to corroborate it', async () => {
+    const client = new JamfPlatformClient(config);
+    stubTokenThen(res({ results: [1, 2], hasNext: false }));
+
+    const walk = await client.requestAllWithCount<number>({ service: 'devices', resource: 'devices' });
+
+    expect(walk.complete).toBe(true);
+    expect(walk.stoppedBecause).toBe('hasNext');
+    expect(walk.reportedTotalCount).toBeUndefined();
+    expect(walk.shortfall).toBeUndefined();
+  });
+
+  // The gateway contradicting itself is exactly the case worth surfacing: the
+  // walk was told to stop, and told the collection was twelve times bigger.
+  it('reports the disagreement when hasNext says done but totalCount says more', async () => {
+    const client = new JamfPlatformClient(config);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    stubTokenThen(res({ results: [1, 2], hasNext: false, totalCount: 24 }));
+
+    const walk = await client.requestAllWithCount<number>({ service: 'devices', resource: 'devices' });
+
+    expect(walk.stoppedBecause).toBe('hasNext');
+    expect(walk.complete).toBe(false);
+    expect(walk.shortfall).toBe(22);
+  });
+
+  // Collecting more than promised means the count was stale or the collection
+  // grew mid-walk. Nobody is at risk of acting on records that are not there, so
+  // it is not a shortfall and must not warn.
+  it('does not call a walk short when it collected more than the gateway reported', async () => {
+    const client = new JamfPlatformClient(config);
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    stubTokenThen(
+      res({ results: [1, 2], totalCount: 3 }),
+      res({ results: [3, 4], totalCount: 3 }),
+    );
+
+    const walk = await client.requestAllWithCount<number>({
+      service: 'blueprints',
+      resource: 'blueprints',
+      pageSize: 2,
+    });
+
+    expect(walk.collectedCount).toBe(4);
+    expect(walk.reportedTotalCount).toBe(3);
+    expect(walk.shortfall).toBeUndefined();
+    expect(walk.complete).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  // A finished walk is judged against the freshest number the gateway gave. Taking
+  // the first would report a 6-record shortfall against a count the gateway had
+  // already revised away.
+  it('reports the last totalCount seen, not the first, when the gateway revises it', async () => {
+    const client = new JamfPlatformClient(config);
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    stubTokenThen(
+      res({ results: [1, 2], totalCount: 10 }),
+      res({ results: [3, 4], totalCount: 4 }),
+    );
+
+    const walk = await client.requestAllWithCount<number>({
+      service: 'blueprints',
+      resource: 'blueprints',
+      pageSize: 2,
+    });
+
+    expect(walk.reportedTotalCount).toBe(4);
+    expect(walk.complete).toBe(true);
+    expect(walk.shortfall).toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  // The whole point of a second method: the existing call sites keep their array.
+  it('gives requestAll callers the identical array, unwrapped', async () => {
+    const client = new JamfPlatformClient(config);
+    fetchMock.mockImplementation(async (url: unknown) => {
+      const s = String(url);
+      if (s.endsWith('/auth/token')) return res(tokenBody);
+      const page = Number(new URL(s).searchParams.get('page'));
+      return res({ results: page === 0 ? ['a', 'b'] : ['c'], totalCount: 3 });
+    });
+
+    const walk = await client.requestAllWithCount<string>({
+      service: 'blueprints',
+      resource: 'blueprints',
+      pageSize: 2,
+    });
+    const array = await client.requestAll<string>({
+      service: 'blueprints',
+      resource: 'blueprints',
+      pageSize: 2,
+    });
+
+    expect(Array.isArray(array)).toBe(true);
+    expect(array).toEqual(walk.items);
+  });
+});
+
+describe('pageSize reaches the wire on every paging family', () => {
+  /** Serves `total` records from a stub that reads the size parameter it is told to. */
+  function serveCollection(total: number, sizeParam: 'page-size' | 'size') {
+    const all = Array.from({ length: total }, (_, i) => i);
+    fetchMock.mockImplementation(async (url: unknown) => {
+      const s = String(url);
+      if (s.endsWith('/auth/token')) return res(tokenBody);
+      const params = new URL(s).searchParams;
+      // Reads ONLY the parameter this family is supposed to send, so a walk that
+      // sends the other one slices with NaN and comes back empty.
+      const size = Number(params.get(sizeParam));
+      const page = Number(params.get('page'));
+      return res({ results: all.slice(page * size, page * size + size), totalCount: total });
+    });
+    return all;
+  }
+
+  // Multi-page traversal has never been proven against the real gateway: every live
+  // collection so far fit inside one page of 100. `pageSize: 2` against 35 records
+  // is the one-command version of that test, so it has to actually work.
+  it('walks 35 records in pages of 2 on the page-size family', async () => {
+    const client = new JamfPlatformClient(config);
+    const all = serveCollection(35, 'page-size');
+
+    const walk = await client.requestAllWithCount<number>({
+      service: 'devices',
+      resource: 'devices',
+      pageSize: 2,
+    });
+
+    expect(walk.items).toEqual(all);
+    expect(walk.pagesFetched).toBe(18);
+    expect(walk.complete).toBe(true);
+
+    // The SECOND request is what proves the walk advanced carrying the caller's
+    // page size, rather than only honouring it once.
+    expect(paramsOf(1).get('page')).toBe('1');
+    expect(paramsOf(1).get('page-size')).toBe('2');
+    expect(paramsOf(1).has('size')).toBe(false);
+
+    // And every request after it, not just the second.
+    const requested = Array.from({ length: 18 }, (_, n) => paramsOf(n));
+    expect(requested.map((p) => p.get('page'))).toEqual(
+      Array.from({ length: 18 }, (_, n) => String(n)),
+    );
+    expect(requested.map((p) => p.get('page-size'))).toEqual(Array(18).fill('2'));
+    expect(requested.some((p) => p.has('size'))).toBe(false);
+  });
+
+  // Same walk on Declaration Reporting, which ignores page-size and would silently
+  // serve its default of 20 if the walk sent the wrong spelling.
+  it('walks 35 records in pages of 2 on the size family, never sending page-size', async () => {
+    const client = new JamfPlatformClient(config);
+    const all = serveCollection(35, 'size');
+
+    const walk = await client.requestAllWithCount<number>({
+      service: 'ddm/report',
+      resource: 'declarations',
+      pageSize: 2,
+    });
+
+    expect(walk.items).toEqual(all);
+    expect(walk.pagesFetched).toBe(18);
+
+    expect(paramsOf(1).get('page')).toBe('1');
+    expect(paramsOf(1).get('size')).toBe('2');
+    expect(paramsOf(1).has('page-size')).toBe(false);
+
+    const requested = Array.from({ length: 18 }, (_, n) => paramsOf(n));
+    expect(requested.map((p) => p.get('size'))).toEqual(Array(18).fill('2'));
+    expect(requested.some((p) => p.has('page-size'))).toBe(false);
+  });
+
+  // The third family refuses to page at all, so the only way pageSize can reach the
+  // wire for it is through an explicit override — which must carry it just the same.
+  it('carries pageSize into a family the caller forced onto a non-paging segment', async () => {
+    const client = new JamfPlatformClient(config);
+    stubTokenThen(
+      res({ results: ['a', 'b'], totalCount: 3 }),
+      res({ results: ['c'], totalCount: 3 }),
+    );
+
+    await client.requestAll({
+      service: 'proclassic',
+      rawPath: `/tenant/${config.tenantId}/scripts`,
+      pagingFamily: 'page-size',
+      pageSize: 2,
+    });
+
+    expect(paramsOf(0).get('page-size')).toBe('2');
+    expect(paramsOf(1).get('page')).toBe('1');
+    expect(paramsOf(1).get('page-size')).toBe('2');
+  });
+
+  // The mirror of dropping page-size on the size family. A stray `size` honoured by
+  // an uncharacterised segment would override the walk's own page size and cap the
+  // answer — the same silent truncation from the other direction.
+  it('drops a caller-supplied size on the page-size family instead of sending both', async () => {
+    const client = new JamfPlatformClient(config);
+    stubTokenThen(res({ results: [1], hasNext: false }));
+
+    await client.requestAll({
+      service: 'devices',
+      resource: 'devices',
+      pageSize: 4,
+      query: { size: 999 },
+    });
+
+    expect(paramsOf(0).has('size')).toBe(false);
+    expect(paramsOf(0).get('page-size')).toBe('4');
+  });
+});
+
 describe('requestAll refuses to report an unreadable page as empty', () => {
   // Classic's named-key shape reached through some other service segment. An
   // empty batch is indistinguishable from "last page", so this must throw.
