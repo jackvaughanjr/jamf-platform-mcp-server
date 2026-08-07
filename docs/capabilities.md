@@ -62,6 +62,13 @@ transitively changes when one group's membership changes. A `not member of`
 criterion is reported distinctly from `member of`, since conflating them inverts the
 meaning.
 
+It also reports `membershipCriterionScan`. Group dependencies are detected by matching a
+criterion named `Computer Group`, so a Jamf build or locale that labels it differently
+would produce an empty graph with nothing flagged. The scan catches that through the
+*operator* instead: a criterion using `member of` under an unrecognised name is named, so
+an empty graph reads as "could not tell" rather than "no dependencies". Nothing is ever
+inferred into an edge from the operator alone.
+
 ## Deletion safety: what breaks if I remove this?
 
 | Question | Tool |
@@ -147,6 +154,10 @@ Classic's 500+. Use `style: 'classic'` for Classic: it builds
 - **Search script bodies or extension-attribute scripts for references to another
   script.** Both are readable but need substring matching, which produces false
   positives on any common word, so they are declared unchecked rather than guessed at.
+- **Follow a group dependency whose criterion label this build does not know.** Detection
+  keys on the name `Computer Group`; `membershipCriterionScan` reports the suspicion but
+  will not guess an edge, and a relabelled criterion using a localised *operator* as well
+  leaves no signal at all.
 - **Answer mobile-device questions well.** `devices` and `device-groups` span macOS and
   iOS together, but the auditing tools are computer-oriented throughout.
 

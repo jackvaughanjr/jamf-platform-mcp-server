@@ -1449,6 +1449,11 @@ server.registerTool(
         dangling: graph.dangling,
         unreadable: graph.unreadable,
         duplicateNames: graph.duplicateNames,
+        // Without this the blind-spot scan is computed and thrown away. It reports
+        // criteria carrying a `member of` operator under a name this build does not
+        // recognise — the signal that a tenant labels group membership differently and
+        // that an empty graph means "could not tell" rather than "no dependencies".
+        membershipCriterionScan: graph.membershipCriterionScan,
         cycles,
         ...(radius ? { blastRadius: radius } : {}),
         // A group whose detail failed is missing from the graph entirely, and its

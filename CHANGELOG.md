@@ -111,6 +111,14 @@ for a search term that could never have matched.
   silently.
 - `sweepCriterionMatches`, `sweepDisplayFieldMatches`, `expandInventoryQuery`,
   `INVENTORY_SETTING_CRITERION_ALIASES`, `BOUNDED_FIND_MAX_DEPTH`.
+- **`requestAllWithCount`** — returns what the gateway reported alongside what was
+  collected, with tri-state `complete` (`undefined` where the gateway offered nothing to
+  check against), `stoppedBecause`, and a `shortfall` that reports rather than throws, since
+  fewer records than promised is still an answer and zero is not.
+- **`membershipCriterionScan` on `findGroupDependencies`** — detects a tenant that labels the
+  group-membership criterion something this build does not know, by keying on the `member of`
+  operator rather than on a zero edge count, which would cry wolf on every tenant whose
+  groups genuinely do not reference each other.
 - `.github/CODEOWNERS`, and an operator-facing write-posture section in `README.md`
   and `CONTRIBUTING.md`.
 - `docs/capabilities.md` — what the server can answer, organised by the question rather
