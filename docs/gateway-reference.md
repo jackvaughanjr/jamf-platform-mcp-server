@@ -307,6 +307,18 @@ flat route that cannot exist, working service      -> 400 REQUEST_CONTEXT_NOT_PR
 | **403 other body** | the gateway recognises the route and refuses it, e.g. `{"error":"Requested endpoint is forbidden"}`. A real signal about that path |
 | **400 `REQUEST_CONTEXT_NOT_PROVIDED`** | no tenant in the path. Says **nothing** about whether the route exists |
 | **401** | token rejected. A credential problem, not a path problem |
+| **504** | edge proxy timed out waiting on the backend. Body is **HTML**, not JSON |
+
+**A 504 arrives as HTML, which is how you know it never reached Jamf Pro.**
+`<html><head><title>504 Gateway Time-out</title>` is nginx-shaped, with none of Jamf's
+`httpStatus`/`traceId`/`errors[]` envelope, so there is no trace id to quote in a support
+ticket. Observed 2026-08-07 on `ddm/report` `declarations/{id}/devices` at **`size=2`**,
+on both `page=0` and `page=1`, for a declaration that had returned all 35 records
+minutes earlier at `size=100`. Whether a small page size provokes it or the timeout was
+transient is **not established** — do not record either as the cause without re-testing.
+Anything parsing an error body must tolerate HTML; `JamfPlatformApiError` keeps the raw
+text, so this surfaces readably, but a parser assuming JSON would throw while handling
+the error.
 
 **Tell the two 403s apart by envelope.** `BAD_PERMISSIONS` arrives in Jamf Pro's
 own format (`httpStatus`, `traceId`, `errors[].code`), meaning the request reached
