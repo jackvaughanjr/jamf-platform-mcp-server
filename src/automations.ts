@@ -395,6 +395,22 @@ export function assessInventoryCollection(settings: InventoryCollectionSettings 
       cost: 'low',
       why: 'enumerates local accounts',
     },
+    {
+      // Rated, not ignored. This setting was declared on
+      // InventoryCollectionSettings and produced no finding at all, so it never
+      // appeared in the output — which reads as "not a cost" when the truth was
+      // "not examined". Low is the honest answer, and saying low is the point.
+      setting: 'hidden_accounts',
+      enabled: on('hidden_accounts'),
+      cost: 'low',
+      why:
+        'widens the local_user_accounts enumeration rather than adding a pass of its own — the ' +
+        'same account read with the UID filter dropped, so the extra work is the scores of ' +
+        'service accounts macOS ships with appearing as extra rows, not extra traversal. Rated ' +
+        'alongside local_user_accounts deliberately. It only becomes expensive in combination: ' +
+        'with home_directory_sizes also on, the `du` that setting runs is run against system ' +
+        'account homes as well, so home_directory_sizes is the setting to act on, not this one.',
+    },
   ];
 
   const escalatedForCustomSearchPaths: CustomSearchPathEscalation[] = [];
@@ -541,6 +557,14 @@ export const INVENTORY_SETTING_CRITERION_ALIASES: Readonly<Record<string, readon
     { term: 'Local User', confidence: 'broad-substring' },
     // Covers labels that drop "Local" ("Accounts", "Hidden Accounts").
     { term: 'Account', confidence: 'broad-substring' },
+  ],
+  hidden_accounts: [
+    // Jamf surfaces hidden accounts inside the same local-accounts inventory
+    // section, so any label for them has to contain the account-family fragment.
+    { term: 'Account', confidence: 'broad-substring' },
+    // Except a label that names the property and drops the noun entirely — a
+    // "Hidden Users" criterion contains neither "Account" nor "Local User".
+    { term: 'Hidden', confidence: 'broad-substring' },
   ],
 };
 

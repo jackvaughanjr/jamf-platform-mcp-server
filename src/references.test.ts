@@ -6,6 +6,7 @@ import {
   findGroupDependencyCycles,
   findObjectReferences,
   GROUP_MEMBERSHIP_CRITERION_NAMES,
+  isMembershipSearchType,
   isNegatedMembershipSearchType,
   readGroupMembershipCriteria,
   REFERENCE_MATRIX,
@@ -362,6 +363,28 @@ describe('findObjectReferences — shapes and refusals', () => {
     ]);
   });
 
+  // scriptBody is DECLARED unchecked, not implemented: finding a script invoked from
+  // another script's body needs substring matching over script contents, which
+  // false-positives on any common word. Supplying the bodies anyway must not be a
+  // route to 'clear' — every one counts as an object with no readable container.
+  it('does not search supplied script bodies, and reports them unread rather than clean', () => {
+    const report = findObjectReferences(
+      { kind: 'script', id: 5, name: 'imaginary-bootstrap.sh' },
+      {
+        policies: [policy({})],
+        scriptBodies: [
+          { id: 9, name: 'imaginary-wrapper.sh', script_contents: '/usr/local/bin/imaginary-bootstrap.sh' },
+        ],
+        computerExtensionAttributeScripts: [],
+      },
+    );
+    expect(report.references).toEqual([]);
+    expect(report.strength).toBe('partial-clear');
+    const scriptBody = report.checked.find((c) => c.sourceKind === 'scriptBody');
+    expect(scriptBody?.objectsWithNoReadableContainer).toBe(1);
+    expect(scriptBody?.containersRead).toEqual([]);
+  });
+
   it('reads a group reference out of an advanced search criterion', () => {
     const report = findObjectReferences(
       { kind: 'computerGroup', name: GROUP },
@@ -475,6 +498,183 @@ describe('readGroupMembershipCriteria', () => {
     expect(isNegatedMembershipSearchType('not member of')).toBe(true);
     expect(isNegatedMembershipSearchType('member of')).toBe(false);
     expect(isNegatedMembershipSearchType(undefined)).toBe(false);
+  });
+
+  // The operator is a signal independent of the criterion name, which is the thing
+  // the name list cannot enumerate. It must not answer yes to ordinary operators,
+  // or every group in the tenant becomes a suspected relabel.
+  it('recognises a membership operator without recognising ordinary ones', () => {
+    expect(isMembershipSearchType('member of')).toBe(true);
+    expect(isMembershipSearchType('not member of')).toBe(true);
+    expect(isMembershipSearchType('is')).toBe(false);
+    expect(isMembershipSearchType('matches regex')).toBe(false);
+    expect(isMembershipSearchType('has')).toBe(false);
+    expect(isMembershipSearchType(undefined)).toBe(false);
+  });
+
+  it('records every criterion name it saw, recognised or not', () => {
+    const read = readGroupMembershipCriteria([
+      { name: 'Computer Group', search_type: 'member of', value: GROUP },
+      { name: 'Operating System Version', search_type: 'like', value: '15' },
+      { name: 'Operating System Version', search_type: 'is not', value: '13' },
+      { search_type: 'is', value: 'anything' },
+    ]);
+    expect(read.sightings.map((s) => s.name)).toEqual([
+      'Computer Group',
+      'Operating System Version',
+      '(unnamed)',
+    ]);
+    const os = read.sightings.find((s) => s.name === 'Operating System Version');
+    expect(os?.count).toBe(2);
+    expect(os?.searchTypes).toEqual(['like', 'is not']);
+    expect(os?.recognized).toBe(false);
+    // "is not" contains "not" but is not a membership operator.
+    expect(os?.usesMembershipOperator).toBe(false);
+    expect(read.sightings.find((s) => s.name === 'Computer Group')?.recognized).toBe(true);
+  });
+});
+
+// GROUP_MEMBERSHIP_CRITERION_NAMES holds one confirmed string. A Jamf Pro version or
+// locale spelling the criterion differently would produce an empty edge list, an
+// empty dangling list and an empty unreadable list — "no group depends on another"
+// where the truth is "I did not recognise the link". The name list cannot detect
+// that about itself, so the scan reports the evidence sitting beside it.
+describe('buildGroupDependencyGraph — the criterion-name blind spot', () => {
+  /** Groups whose criteria are clearly other fields. The must-not-fire case. */
+  const ordinaryCriteria = [
+    {
+      id: 1,
+      name: 'Imaginary Tier One',
+      is_smart: true,
+      criteria: [
+        { name: 'Operating System Version', search_type: 'like', value: '15' },
+        { name: 'Application Title', search_type: 'has', value: 'Invented Editor' },
+      ],
+    },
+    {
+      id: 2,
+      name: 'Imaginary Tier Two',
+      is_smart: true,
+      criteria: [{ name: 'Operating System Version', search_type: 'like', value: '14' }],
+    },
+  ];
+
+  it('lists the criterion names it did see when it recognised none of them', () => {
+    const graph = buildGroupDependencyGraph(ordinaryCriteria);
+    const scan = graph.membershipCriterionScan;
+    expect(graph.edges).toEqual([]);
+    expect(scan.lookedFor).toEqual(GROUP_MEMBERSHIP_CRITERION_NAMES);
+    expect(scan.groupsScanned).toBe(2);
+    expect(scan.criteriaExamined).toBe(3);
+    expect(scan.membershipCriteriaFound).toBe(0);
+    // Most frequent first, so the likely candidate is at the top of the list.
+    expect(scan.observedCriterionNames.map((s) => [s.name, s.count])).toEqual([
+      ['Operating System Version', 2],
+      ['Application Title', 1],
+    ]);
+  });
+
+  // The alarm must stay silent here or it fires on every tenant whose groups simply
+  // do not reference each other, which is most of them.
+  it('does not warn when the criteria seen are clearly other fields', () => {
+    const scan = buildGroupDependencyGraph(ordinaryCriteria).membershipCriterionScan;
+    expect(scan.unrecognizedMembershipOperators).toEqual([]);
+    expect(scan.note).not.toContain('MISSING from this graph');
+    // It still refuses to call the empty graph proof.
+    expect(scan.note).toContain('cannot rule out a label this build does not know');
+  });
+
+  // The detectable case: a tenant labels the criterion differently, so no edge is
+  // built, but the operator gives it away.
+  it('names a criterion using a membership operator under a label it does not follow', () => {
+    const graph = buildGroupDependencyGraph([
+      { id: 1, name: 'Imaginary Tier One', is_smart: true, criteria: [] },
+      {
+        id: 2,
+        name: 'Imaginary Tier Two',
+        is_smart: true,
+        criteria: [
+          { name: 'Smart Computer Group', search_type: 'member of', value: 'Imaginary Tier One' },
+        ],
+      },
+    ]);
+    // Every list that would normally carry the finding is empty — which is the point.
+    expect(graph.edges).toEqual([]);
+    expect(graph.dangling).toEqual([]);
+    expect(graph.unreadable).toEqual([]);
+
+    const scan = graph.membershipCriterionScan;
+    expect(scan.unrecognizedMembershipOperators.map((s) => s.name)).toEqual(['Smart Computer Group']);
+    expect(scan.unrecognizedMembershipOperators[0]?.searchTypes).toEqual(['member of']);
+    expect(scan.note).toContain('MISSING from this graph');
+  });
+
+  // A tenant can spell it two ways at once — after an upgrade, or across locales.
+  // Gating the warning on "found nothing" would hide exactly that.
+  it('still names a second spelling when the known label was also found', () => {
+    const graph = buildGroupDependencyGraph([
+      { id: 1, name: 'Imaginary Tier One', is_smart: true, criteria: [] },
+      groupWithMembership('Imaginary Tier Two', 2, 'Imaginary Tier One'),
+      {
+        id: 3,
+        name: 'Imaginary Tier Three',
+        is_smart: true,
+        criteria: [
+          { name: 'Smart Computer Group', search_type: 'not member of', value: 'Imaginary Tier One' },
+        ],
+      },
+    ]);
+    expect(graph.edges).toHaveLength(1);
+    const scan = graph.membershipCriterionScan;
+    expect(scan.membershipCriteriaFound).toBe(1);
+    expect(scan.unrecognizedMembershipOperators.map((s) => s.name)).toEqual(['Smart Computer Group']);
+  });
+
+  it('keeps the observed vocabulary out of the report once links were found', () => {
+    const graph = buildGroupDependencyGraph([
+      groupWithMembership('Imaginary Tier Two', 2, 'Imaginary Tier One'),
+      {
+        id: 1,
+        name: 'Imaginary Tier One',
+        is_smart: true,
+        criteria: [{ name: 'Operating System Version', search_type: 'like', value: '15' }],
+      },
+    ]);
+    const scan = graph.membershipCriterionScan;
+    expect(scan.membershipCriteriaFound).toBe(1);
+    expect(scan.observedCriterionNames).toEqual([]);
+    expect(scan.unrecognizedMembershipOperators).toEqual([]);
+    expect(scan.note).toContain('no second spelling');
+  });
+
+  // Nothing observed is its own state: it is not evidence either way, and must not
+  // be dressed up as "these are the names I saw".
+  it('says no label was observed when there were no criteria to observe', () => {
+    const empty = buildGroupDependencyGraph([
+      { id: 1, name: 'Imaginary Tier One', is_smart: true, criteria: [] },
+    ]).membershipCriterionScan;
+    expect(empty.groupsScanned).toBe(1);
+    expect(empty.criteriaExamined).toBe(0);
+    expect(empty.note).toContain('every criteria array was empty');
+
+    const staticOnly = buildGroupDependencyGraph([
+      { id: 1, name: 'Imaginary Static Group', is_smart: false },
+    ]).membershipCriterionScan;
+    expect(staticOnly.groupsScanned).toBe(0);
+    expect(staticOnly.note).toContain('No group had a readable');
+  });
+
+  it('counts a criterion entry it cannot read rather than dropping it', () => {
+    const scan = buildGroupDependencyGraph([
+      {
+        id: 1,
+        name: 'Imaginary Tier One',
+        is_smart: true,
+        criteria: [null, 'not a criterion', { name: 'Model', search_type: 'is', value: 'Invented Model' }],
+      },
+    ]).membershipCriterionScan;
+    expect(scan.criteriaExamined).toBe(3);
+    expect(scan.observedCriterionNames.find((s) => s.name === '(unreadable criterion)')?.count).toBe(2);
   });
 });
 

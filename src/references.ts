@@ -174,9 +174,12 @@ export interface ScopedObjectDetail {
  * called "Computer Group Name" would be a different field, and a substring rule
  * would swallow it.
  *
- * A tenant on a Jamf Pro version that labels this differently would go unseen. That
- * is why the graph reports what it could not read rather than returning a tidy
- * empty result.
+ * A tenant on a Jamf Pro version that labels this differently would go unseen, and
+ * the list cannot be widened by guessing: a wrong entry manufactures false edges,
+ * which is worse than a missing one. So the blind spot is made *detectable* instead
+ * — `buildGroupDependencyGraph` reports what it could not read AND, on
+ * `membershipCriterionScan`, the criterion vocabulary it walked past plus any
+ * criterion using a membership operator under a name absent from this list.
  */
 export const GROUP_MEMBERSHIP_CRITERION_NAMES: readonly string[] = ['Computer Group'];
 
@@ -190,6 +193,68 @@ export const GROUP_MEMBERSHIP_CRITERION_NAMES: readonly string[] = ['Computer Gr
  */
 export function isNegatedMembershipSearchType(searchType: string | undefined): boolean {
   return searchType !== undefined && /\bnot\b/i.test(searchType);
+}
+
+/**
+ * Whether a search type expresses membership at all — "member of", "not member of".
+ *
+ * This is the *operator*, deliberately a different signal from the criterion NAME,
+ * which is the thing `GROUP_MEMBERSHIP_CRITERION_NAMES` cannot enumerate. A
+ * criterion carrying a membership operator under a name that list does not hold is
+ * the best available evidence that this tenant labels the group criterion
+ * differently — and it is evidence the name list cannot produce about itself.
+ *
+ * Used ONLY to report a suspicion, never to build an edge. Widening the name list
+ * from an operator match would invent dependencies, and a false edge is worse than
+ * a missing one: it sends someone to break a criterion that was never there.
+ */
+export function isMembershipSearchType(searchType: string | undefined): boolean {
+  return searchType !== undefined && /\bmember\b/i.test(searchType);
+}
+
+/**
+ * One distinct criterion name seen while scanning, and what was seen with it.
+ *
+ * Exists so a zero-edge graph can show its work. "No group references another" and
+ * "no criterion name I recognise appeared" are different claims, and only the
+ * observed vocabulary distinguishes them.
+ */
+export interface CriterionNameSighting {
+  /** The name as spelled. `(unnamed)` / `(unreadable criterion)` for shapes with none. */
+  name: string;
+  /** How many criteria carried it. */
+  count: number;
+  /** Distinct search types seen with it, in first-seen order. */
+  searchTypes: string[];
+  /** Whether this build treats the name as a group-to-group membership link. */
+  recognized: boolean;
+  /** Whether any sighting used a "member of" / "not member of" operator. */
+  usesMembershipOperator: boolean;
+}
+
+/** Placeholder names, so a shape with nothing readable is still counted. */
+const UNNAMED_CRITERION = '(unnamed)';
+const UNREADABLE_CRITERION = '(unreadable criterion)';
+
+/** Merges per-group sightings into one vocabulary, most frequent first. */
+function mergeCriterionSightings(lists: readonly CriterionNameSighting[][]): CriterionNameSighting[] {
+  const merged = new Map<string, CriterionNameSighting>();
+  for (const list of lists) {
+    for (const sighting of list) {
+      const key = nameKey(sighting.name);
+      const existing = merged.get(key);
+      if (!existing) {
+        merged.set(key, { ...sighting, searchTypes: [...sighting.searchTypes] });
+        continue;
+      }
+      existing.count += sighting.count;
+      for (const searchType of sighting.searchTypes) {
+        if (!existing.searchTypes.includes(searchType)) existing.searchTypes.push(searchType);
+      }
+      existing.usesMembershipOperator ||= sighting.usesMembershipOperator;
+    }
+  }
+  return [...merged.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
 /** One group-membership criterion, resolved to the group name it points at. */
@@ -214,25 +279,57 @@ export interface GroupMembershipCriterion {
  * `unreadableValues` counts criteria that ARE group-membership criteria but whose
  * value could not be read as a name — a real blind spot, since each one is a
  * dependency that exists and cannot be resolved.
+ *
+ * `sightings` records every criterion name seen, recognised or not. The name list
+ * cannot tell you it is missing an entry; the vocabulary it walked past can.
  */
 export function readGroupMembershipCriteria(criteria: unknown): {
   found: GroupMembershipCriterion[];
   readable: boolean;
   unreadableValues: number;
+  sightings: CriterionNameSighting[];
 } {
-  if (!Array.isArray(criteria)) return { found: [], readable: false, unreadableValues: 0 };
+  if (!Array.isArray(criteria)) {
+    return { found: [], readable: false, unreadableValues: 0, sightings: [] };
+  }
 
   const wanted = new Set(GROUP_MEMBERSHIP_CRITERION_NAMES.map(nameKey));
   const found: GroupMembershipCriterion[] = [];
+  const sightings = new Map<string, CriterionNameSighting>();
   let unreadableValues = 0;
+
+  const sight = (name: string, searchType: string | undefined, recognized: boolean) => {
+    const key = nameKey(name);
+    const existing = sightings.get(key);
+    const entry = existing ?? {
+      name,
+      count: 0,
+      searchTypes: [],
+      recognized,
+      usesMembershipOperator: false,
+    };
+    entry.count += 1;
+    if (searchType !== undefined && !entry.searchTypes.includes(searchType)) {
+      entry.searchTypes.push(searchType);
+    }
+    entry.usesMembershipOperator ||= isMembershipSearchType(searchType);
+    if (!existing) sightings.set(key, entry);
+  };
 
   criteria.forEach((raw, index) => {
     const criterion = asRecord(raw);
-    if (!criterion) return;
+    if (!criterion) {
+      // Counted rather than dropped: an entry this cannot read is not an absence of
+      // criteria, and silently skipping it is how a scan under-reports its own gaps.
+      sight(UNREADABLE_CRITERION, undefined, false);
+      return;
+    }
     const name = scalarString(criterion.name);
-    if (name === undefined || !wanted.has(nameKey(name))) return;
-
     const searchType = scalarString(criterion.search_type);
+    const recognized = name !== undefined && wanted.has(nameKey(name));
+    sight(name ?? UNNAMED_CRITERION, searchType, recognized);
+    if (!recognized) return;
+
     const groupName = scalarString(criterion.value);
     if (groupName === undefined) {
       unreadableValues += 1;
@@ -246,7 +343,7 @@ export function readGroupMembershipCriteria(criteria: unknown): {
     });
   });
 
-  return { found, readable: true, unreadableValues };
+  return { found, readable: true, unreadableValues, sightings: [...sightings.values()] };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1140,6 +1237,60 @@ export interface UnreadableGroup {
   why: string;
 }
 
+/**
+ * What the membership scan actually saw, so an empty graph can be told apart from
+ * an unreadable one.
+ *
+ * `GROUP_MEMBERSHIP_CRITERION_NAMES` holds one confirmed string. A Jamf Pro version
+ * or locale that labels the criterion differently would produce an empty `edges`
+ * list, an empty `dangling` list and an empty `unreadable` list — a graph that says
+ * "no group depends on another" when it means "I did not recognise the link". The
+ * name list cannot detect that about itself, so this reports the evidence that sits
+ * beside it:
+ *
+ * - `unrecognizedMembershipOperators` is the strong signal. Jamf writes the
+ *   group-membership *operator* as "member of" / "not member of", and that operator
+ *   is independent of the criterion's label. A criterion using it under a name this
+ *   build does not hold is very likely the relabelled group criterion.
+ * - `observedCriterionNames` is the weak one, and appears only when nothing was
+ *   recognised: the vocabulary actually walked past, so a reader can spot their own
+ *   tenant's spelling in it.
+ *
+ * Neither ever becomes an edge. Widening the match from this evidence would invent
+ * dependencies, which is the failure this whole module is built to avoid.
+ */
+export interface MembershipCriterionScan {
+  /** The criterion names this build follows. */
+  lookedFor: readonly string[];
+  /** Groups whose `criteria` array was readable. */
+  groupsScanned: number;
+  /** Criteria examined across those groups. */
+  criteriaExamined: number;
+  /**
+   * Criteria whose name was recognised — the source of every edge and dangling
+   * entry, plus any whose value could not be read.
+   */
+  membershipCriteriaFound: number;
+  /**
+   * The distinct vocabulary seen, most frequent first.
+   *
+   * Populated ONLY when `membershipCriteriaFound` is 0. When links were found the
+   * list is a dump of the tenant's whole criterion vocabulary answering a question
+   * nobody asked.
+   */
+  observedCriterionNames: CriterionNameSighting[];
+  /**
+   * Names carrying a membership operator that `lookedFor` does not contain.
+   *
+   * Reported whether or not links were also found, because a tenant can label the
+   * criterion two ways at once — after an upgrade, or across locales — and gating
+   * this on a zero count would hide exactly that case.
+   */
+  unrecognizedMembershipOperators: CriterionNameSighting[];
+  /** The state above, in words. */
+  note: string;
+}
+
 export interface GroupDependencyGraph {
   nodes: GroupNode[];
   edges: GroupEdge[];
@@ -1160,6 +1311,13 @@ export interface GroupDependencyGraph {
    * would otherwise quietly attribute a dependency to the wrong group.
    */
   duplicateNames: Array<{ name: string; ids: string[] }>;
+  /**
+   * Evidence about the one criterion name this build matches on.
+   *
+   * An empty `edges` list is only a finding if the scan could have recognised a
+   * link. This is what says whether it could.
+   */
+  membershipCriterionScan: MembershipCriterionScan;
 }
 
 /**
@@ -1184,6 +1342,9 @@ export function buildGroupDependencyGraph(groups: readonly unknown[]): GroupDepe
   const idsByName = new Map<string, string[]>();
   /** Parsed criteria kept aside so names resolve after every node is known. */
   const pending: Array<{ node: GroupNode; criteria: GroupMembershipCriterion[] }> = [];
+  /** Criterion vocabulary, collected whether or not it produced an edge. */
+  const sightingLists: CriterionNameSighting[][] = [];
+  let groupsScanned = 0;
 
   groups.forEach((raw, index) => {
     const record = asRecord(raw);
@@ -1223,6 +1384,8 @@ export function buildGroupDependencyGraph(groups: readonly unknown[]): GroupDepe
       });
       return;
     }
+    groupsScanned += 1;
+    sightingLists.push(read.sightings);
     if (read.unreadableValues > 0) {
       unreadable.push({
         name: identity.name,
@@ -1262,7 +1425,85 @@ export function buildGroupDependencyGraph(groups: readonly unknown[]): GroupDepe
     .filter(([, ids]) => ids.length > 1)
     .map(([key, ids]) => ({ name: byName.get(key)?.name ?? key, ids }));
 
-  return { nodes, edges, dangling, unreadable, duplicateNames };
+  return {
+    nodes,
+    edges,
+    dangling,
+    unreadable,
+    duplicateNames,
+    membershipCriterionScan: scanMembershipCriterionNames(groupsScanned, sightingLists),
+  };
+}
+
+/** Quotes a name list for a sentence. */
+function quoteAll(names: readonly string[]): string {
+  return names.map((n) => JSON.stringify(n)).join(', ');
+}
+
+/**
+ * Turns the collected vocabulary into the blind-spot report.
+ *
+ * The warning is keyed on the membership *operator*, never on the count of edges.
+ * Keying it on "found nothing" would fire on every tenant whose groups genuinely do
+ * not reference each other — which is most of them — and a warning that cries wolf
+ * on the common case is a warning nobody reads by the time it is true.
+ */
+function scanMembershipCriterionNames(
+  groupsScanned: number,
+  sightingLists: readonly CriterionNameSighting[][],
+): MembershipCriterionScan {
+  const observed = mergeCriterionSightings(sightingLists);
+  const criteriaExamined = observed.reduce((sum, s) => sum + s.count, 0);
+  const membershipCriteriaFound = observed
+    .filter((s) => s.recognized)
+    .reduce((sum, s) => sum + s.count, 0);
+  const unrecognizedMembershipOperators = observed.filter(
+    (s) => s.usesMembershipOperator && !s.recognized,
+  );
+
+  const lookedFor = quoteAll(GROUP_MEMBERSHIP_CRITERION_NAMES);
+  let note: string;
+  if (unrecognizedMembershipOperators.length > 0) {
+    note =
+      `${unrecognizedMembershipOperators.length} criterion name(s) used a "member of"-style ` +
+      `operator while not being one this build follows: ` +
+      `${quoteAll(unrecognizedMembershipOperators.map((s) => s.name))}. This build follows only ` +
+      `${lookedFor}, so any dependency written that way is MISSING from this graph rather than ` +
+      'absent from the tenant. Nothing was inferred from the operator — check one of those ' +
+      'criteria in the Jamf UI before reading the edges below as complete.';
+  } else if (criteriaExamined === 0) {
+    note =
+      groupsScanned === 0
+        ? 'No group had a readable `criteria` array, so no criterion label was observed at all. ' +
+          'The empty graph says nothing about this tenant — see `unreadable`.'
+        : `${groupsScanned} group(s) were scanned and every criteria array was empty, so no ` +
+          'criterion label was observed.';
+  } else if (membershipCriteriaFound === 0) {
+    note =
+      `No group-membership criterion was found in ${criteriaExamined} criteria across ` +
+      `${groupsScanned} group(s). This build follows only ${lookedFor}. None of the names in ` +
+      '`observedCriterionNames` used a membership operator, so on the evidence available no ' +
+      'group here references another — but that evidence cannot rule out a label this build ' +
+      'does not know. Read the list and check your own spelling of the group criterion appears ' +
+      'in `lookedFor`.';
+  } else {
+    note =
+      `${membershipCriteriaFound} group-membership criteria across ${groupsScanned} group(s), ` +
+      `all matched on ${lookedFor}. No other criterion used a membership operator, so no ` +
+      'second spelling of the criterion is in evidence.';
+  }
+
+  return {
+    lookedFor: GROUP_MEMBERSHIP_CRITERION_NAMES,
+    groupsScanned,
+    criteriaExamined,
+    membershipCriteriaFound,
+    // Only worth showing when nothing was recognised; otherwise it is the tenant's
+    // entire criterion vocabulary answering a question nobody asked.
+    observedCriterionNames: membershipCriteriaFound === 0 ? observed : [],
+    unrecognizedMembershipOperators,
+    note,
+  };
 }
 
 /** Forward and reverse adjacency, keyed by normalised name. */

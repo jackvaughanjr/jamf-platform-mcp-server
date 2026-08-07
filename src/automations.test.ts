@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -355,6 +357,55 @@ describe('assessInventoryCollection', () => {
     const highAndEnabled = a.findings.filter((f) => f.enabled && f.cost === 'high').map((f) => f.setting);
     expect(a.enabledHighCost).toEqual(highAndEnabled);
     expect(a.enabledHighCost).toHaveLength(2);
+  });
+
+  // hidden_accounts was declared on InventoryCollectionSettings and produced no
+  // finding, so it never reached the output at all. A setting absent from the audit
+  // reads as "not a cost" when the truth is "not examined" — the false all-clear
+  // shape this repo keeps finding.
+  it('assesses hidden_accounts instead of leaving it out of the report', () => {
+    const off = assessInventoryCollection({});
+    expect(off.findings.map((f) => f.setting)).toContain('hidden_accounts');
+    expect(off.findings.find((f) => f.setting === 'hidden_accounts')?.enabled).toBe(false);
+
+    const on = assessInventoryCollection({ hidden_accounts: true });
+    expect(on.findings.find((f) => f.setting === 'hidden_accounts')?.enabled).toBe(true);
+  });
+
+  // Low is the honest rating, and stating it is the point: enumerating hidden
+  // accounts drops the UID filter on a read that is already happening rather than
+  // adding a traversal, so it costs what its sibling costs.
+  it('rates hidden_accounts alongside local_user_accounts and names its one amplifier', () => {
+    const a = assessInventoryCollection({ hidden_accounts: true, local_user_accounts: true });
+    const hidden = a.findings.find((f) => f.setting === 'hidden_accounts');
+    const local = a.findings.find((f) => f.setting === 'local_user_accounts');
+    expect(hidden?.cost).toBe('low');
+    expect(hidden?.cost).toBe(local?.cost);
+    // The only way it costs more is in combination, and the reader has to be told
+    // which of the two settings is actually worth turning off.
+    expect(hidden?.why).toContain('home_directory_sizes');
+    expect(a.enabledHighCost).toEqual([]);
+  });
+
+  // Parsed from the source so the next field added to the type cannot repeat the
+  // hidden_accounts gap. The three `unknown[]` search-path fields are deliberately
+  // not findings — they escalate other ratings and are reported as counts.
+  it('produces a finding for every boolean setting the type declares', () => {
+    const source = readFileSync(new URL('./automations.ts', import.meta.url), 'utf8');
+    const block = source.match(/export interface InventoryCollectionSettings \{([\s\S]*?)\n\}/)?.[1];
+    expect(block, 'InventoryCollectionSettings not found in src/automations.ts').toBeDefined();
+
+    const declared = [...(block ?? '').matchAll(/^\s*(\w+)\?: boolean;/gm)].map((m) => m[1] as string);
+    expect(declared.length, 'parsed no boolean fields — the regex has drifted').toBeGreaterThan(5);
+
+    const assessed = new Set(assessInventoryCollection({}).findings.flatMap((f) => f.setting.split(' / ')));
+    for (const field of declared) {
+      expect(
+        assessed.has(field),
+        `InventoryCollectionSettings.${field} is declared but never assessed, so it cannot ` +
+          'appear in the report — absence there reads as "not a cost".',
+      ).toBe(true);
+    }
   });
 });
 
