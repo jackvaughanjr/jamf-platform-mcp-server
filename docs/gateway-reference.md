@@ -320,10 +320,19 @@ That timing matters to the diagnosis. A fault surviving overnight across several
 is not a blip, and it rules out load from the previous day's heavy sweeps (87 and 81
 detail requests) as a cause. **`size=100` was then tested on the same day and returned all 35 records.** So on
 2026-08-07 the same route failed at `size=2` and `size=20` and succeeded at `size=100`,
-which points at page size rather than an outage. Not yet conclusive: the attempts were
-minutes apart rather than simultaneous, so a transient window covering only the small-size
-calls remains possible. Re-running a small size immediately after a large-size success is
-the test that settles it.
+which points at page size rather than an outage. Then `size=20` was re-run **immediately after** that success and timed out again. Same
+route, same filter, back to back — which rules out a transient window and establishes the
+failure as **dependent on the page size requested**.
+
+A smaller page timing out while a larger one succeeds is backwards, so the mechanism is
+not obvious. Two candidates, untested: a magnitude threshold below which the backend's
+query plan degrades, or edge caching — `size=100` is the only parameter set this project
+has ever sent on this route, so a warm cache could be masking a slow backend. The second
+would mean the 200s are potentially stale, so it matters. A novel-but-large size such as
+`size=99` distinguishes them.
+
+**Practical effect on this codebase: none by default.** `requestAll` sends `size=100`,
+which is the working path. It bites only a caller who lowers `pageSize` on `ddm/report`.
 Anything parsing an error body must tolerate HTML; `JamfPlatformApiError` keeps the raw
 text, so this surfaces readably, but a parser assuming JSON would throw while handling
 the error.
