@@ -318,10 +318,12 @@ on **2026-08-06** — the *previous day*, not minutes earlier as first written h
 
 That timing matters to the diagnosis. A fault surviving overnight across several attempts
 is not a blip, and it rules out load from the previous day's heavy sweeps (87 and 81
-detail requests) as a cause. What remains untested is `size=100` **on the failing day**:
-every 2026-08-07 attempt used a small page size, so a size-sensitive backend and a route
-that is simply down are still both consistent with the evidence. Do not record either as
-the cause without that test.
+detail requests) as a cause. **`size=100` was then tested on the same day and returned all 35 records.** So on
+2026-08-07 the same route failed at `size=2` and `size=20` and succeeded at `size=100`,
+which points at page size rather than an outage. Not yet conclusive: the attempts were
+minutes apart rather than simultaneous, so a transient window covering only the small-size
+calls remains possible. Re-running a small size immediately after a large-size success is
+the test that settles it.
 Anything parsing an error body must tolerate HTML; `JamfPlatformApiError` keeps the raw
 text, so this surfaces readably, but a parser assuming JSON would throw while handling
 the error.
