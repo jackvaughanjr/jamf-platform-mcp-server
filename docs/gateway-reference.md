@@ -312,10 +312,16 @@ flat route that cannot exist, working service      -> 400 REQUEST_CONTEXT_NOT_PR
 **A 504 arrives as HTML, which is how you know it never reached Jamf Pro.**
 `<html><head><title>504 Gateway Time-out</title>` is nginx-shaped, with none of Jamf's
 `httpStatus`/`traceId`/`errors[]` envelope, so there is no trace id to quote in a support
-ticket. Observed 2026-08-07 on `ddm/report` `declarations/{id}/devices` at **`size=2`**,
-on both `page=0` and `page=1`, for a declaration that had returned all 35 records
-minutes earlier at `size=100`. Whether a small page size provokes it or the timeout was
-transient is **not established** — do not record either as the cause without re-testing.
+ticket. Observed **2026-08-07** on `ddm/report` `declarations/{id}/devices` at `size=2` and again
+at `size=20`, both pages each time. The same route returned all 35 records at `size=100`
+on **2026-08-06** — the *previous day*, not minutes earlier as first written here.
+
+That timing matters to the diagnosis. A fault surviving overnight across several attempts
+is not a blip, and it rules out load from the previous day's heavy sweeps (87 and 81
+detail requests) as a cause. What remains untested is `size=100` **on the failing day**:
+every 2026-08-07 attempt used a small page size, so a size-sensitive backend and a route
+that is simply down are still both consistent with the evidence. Do not record either as
+the cause without that test.
 Anything parsing an error body must tolerate HTML; `JamfPlatformApiError` keeps the raw
 text, so this surfaces readably, but a parser assuming JSON would throw while handling
 the error.
