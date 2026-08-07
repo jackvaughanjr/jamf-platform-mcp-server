@@ -505,8 +505,11 @@ export class JamfPlatformClient {
     }
 
     throw new Error(
-      `requestAll exceeded maxPages (${maxPages}) for ${options.service}/${options.rawPath ?? options.resource}. ` +
-        'Raise maxPages deliberately, or check whether the pagination contract changed.',
+      `requestAll exceeded maxPages (${maxPages}) for ${options.service}/${options.rawPath ?? options.resource} ` +
+        `at pageSize ${pageSize}, so it stopped at ${maxPages * pageSize} records. ` +
+        'Raise maxPages deliberately, or check whether the pagination contract changed. ' +
+        'If you lowered pageSize to force multi-page behaviour, that is what shrank the ' +
+        'ceiling — maxPages bounds PAGES, not records.',
     );
   }
 

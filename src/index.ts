@@ -337,12 +337,21 @@ server.registerTool(
   },
   async ({ query, limit }) => {
     try {
-      const all = await client.requestAll<DeviceRecord>({ service: 'devices', resource: 'devices' });
+      // A search that scanned part of the fleet and found nothing is not the same as one
+      // that scanned all of it and found nothing, and `scanned` alone cannot tell them
+      // apart.
+      const scanWalk = await client.requestAllWithCount<DeviceRecord>({
+        service: 'devices',
+        resource: 'devices',
+      });
+      const all = scanWalk.items;
       const matches = all.filter((d) => matchesDeviceQuery(d, query));
       const cap = limit ?? 25;
       return asContent({
         query,
         scanned: all.length,
+        scanComplete: scanWalk.complete,
+        ...(scanWalk.complete === true ? {} : { scannedOutOf: scanWalk.reportedTotalCount }),
         matched: matches.length,
         // Say so when results are cut, rather than implying this is everything.
         truncated: matches.length > cap,
@@ -381,12 +390,21 @@ server.registerTool(
   },
   async ({ belowMajor, limit }) => {
     try {
-      const all = await client.requestAll<DeviceRecord>({ service: 'devices', resource: 'devices' });
+      // A search that scanned part of the fleet and found nothing is not the same as one
+      // that scanned all of it and found nothing, and `scanned` alone cannot tell them
+      // apart.
+      const scanWalk = await client.requestAllWithCount<DeviceRecord>({
+        service: 'devices',
+        resource: 'devices',
+      });
+      const all = scanWalk.items;
       const { outdated, unknownVersion } = selectOutdatedDevices(all, belowMajor);
       const cap = limit ?? 50;
       return asContent({
         belowMajor,
         scanned: all.length,
+        scanComplete: scanWalk.complete,
+        ...(scanWalk.complete === true ? {} : { scannedOutOf: scanWalk.reportedTotalCount }),
         outdatedCount: outdated.length,
         unknownVersionCount: unknownVersion.length,
         truncated: outdated.length > cap || unknownVersion.length > cap,
@@ -415,15 +433,18 @@ server.registerTool(
   },
   async ({ query, limit }) => {
     try {
-      const all = await client.requestAll<DeviceGroupRecord>({
+      const scanWalk = await client.requestAllWithCount<DeviceGroupRecord>({
         service: 'device-groups',
         resource: 'device-groups',
       });
+      const all = scanWalk.items;
       const matches = all.filter((g) => matchesGroupQuery(g, query));
       const cap = limit ?? 50;
       return asContent({
         query,
         scanned: all.length,
+        scanComplete: scanWalk.complete,
+        ...(scanWalk.complete === true ? {} : { scannedOutOf: scanWalk.reportedTotalCount }),
         matched: matches.length,
         truncated: matches.length > cap,
         groups: matches
@@ -1173,7 +1194,10 @@ server.registerTool(
         // passing page-size here would be ignored and silently cap this at 20.
         // encodeURIComponent because buildUrl does not escape `resource` — a
         // declaration identifier containing a slash would otherwise change the route.
-        client.requestAll<DeclarationRecord>({
+        // requestAllWithCount rather than requestAll: summarizeDeclarationScope already
+        // knows how to report truncation, but only if something hands it the count the
+        // gateway reported. Nothing could, until the walk started returning it.
+        client.requestAllWithCount<DeclarationRecord>({
           service: 'ddm/report',
           resource: `declarations/${encodeURIComponent(declaration)}/devices`,
           query: { filter: rsql },
@@ -1193,9 +1217,13 @@ server.registerTool(
       if (deviceLeg.status === 'rejected') errors.devices = legError(deviceLeg.reason);
 
       const report = summarizeDeclarationScope(
-        declLeg.value,
+        declLeg.value.items,
         deviceLeg.status === 'fulfilled' ? deviceLeg.value : [],
-        { declarationIdentifier: declaration, filter: rsql },
+        {
+          declarationIdentifier: declaration,
+          filter: rsql,
+          reportedTotalCount: declLeg.value.reportedTotalCount,
+        },
       );
 
       return asContent({
