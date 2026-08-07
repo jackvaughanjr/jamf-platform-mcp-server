@@ -832,9 +832,12 @@ server.registerTool(
         }),
       ]);
 
-      let smartGroupCount = 0;
-
-      const groupHits = await mapWithConcurrency(groupStubs, parallel, async (stub) => {
+      // Each task returns whether it read a smart group rather than incrementing a
+      // shared counter. The counter was correct only because the increment happened to
+      // be synchronous within each task; an `await` placed before it would have
+      // introduced a lost update, and the number it feeds — how many groups this search
+      // actually covered — is the caller's evidence for trusting a zero result.
+      const groupResults = await mapWithConcurrency(groupStubs, parallel, async (stub) => {
         try {
           const group = await client
             .request<Record<string, unknown>>({
@@ -848,15 +851,20 @@ server.registerTool(
             );
           // Static groups have no criteria; counting them as scanned would overstate
           // the coverage of this search.
-          if (!group?.is_smart) return null;
-          smartGroupCount += 1;
+          if (!group?.is_smart) return { isSmart: false, hit: null };
           const matches = sweepCriterionMatches(group.criteria, expansion.terms);
-          return matches.length > 0 ? { id: stub.id, name: group.name ?? stub.name, matches } : null;
+          return {
+            isSmart: true,
+            hit: matches.length > 0 ? { id: stub.id, name: group.name ?? stub.name, matches } : null,
+          };
         } catch (error) {
           errors[`computerGroup:${stub.id}`] = legError(error);
-          return null;
+          return { isSmart: false, hit: null };
         }
       });
+
+      const smartGroupCount = groupResults.filter((r) => r.isSmart).length;
+      const groupHits = groupResults.map((r) => r.hit);
 
       const searchHits = await mapWithConcurrency(searchStubs, parallel, async (stub) => {
         try {
