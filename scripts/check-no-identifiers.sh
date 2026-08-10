@@ -28,9 +28,16 @@
 # check site-specific strings, create a gitignored `.identifier-patterns.local`
 # with one grep -E pattern per line; blank lines and #comments are ignored.
 #
+# COMMIT MESSAGES COUNT TOO
+# The guard originally checked only file contents, and a commit message quoting a
+# live blueprint UUID and two smart-group names went straight through onto a public
+# repo. A commit message is as published as a file and cannot be edited once pushed
+# without rewriting history, so it is now checked before the commit is written.
+#
 # USAGE
 #   scripts/check-no-identifiers.sh            # all tracked files
 #   scripts/check-no-identifiers.sh --staged   # only staged files (pre-commit)
+#   scripts/check-no-identifiers.sh --msg FILE # a commit message (commit-msg hook)
 #
 set -euo pipefail
 
@@ -44,10 +51,43 @@ SYNTHETIC_RE='^(deadbeef|00000000)-'
 mode="${1:---all}"
 violations=0
 
-if [ "$mode" = "--staged" ]; then
+if [ "$mode" = "--msg" ]; then
+  # A commit message is not a tracked file, so it is scanned in place. Same UUID rule
+  # and the same optional local patterns — the local list is where org strings such as
+  # group names belong, since this script must not enumerate them.
+  msg_file="${2:?--msg requires a path}"
+  scan_targets=("$msg_file")
+elif [ "$mode" = "--staged" ]; then
   mapfile -t files < <(git diff --cached --name-only --diff-filter=ACM)
 else
   mapfile -t files < <(git ls-files)
+fi
+
+if [ "$mode" = "--msg" ]; then
+  while IFS=: read -r line_no match; do
+    [ -n "$match" ] || continue
+    if ! printf '%s' "$match" | grep -qE "$SYNTHETIC_RE"; then
+      printf '\033[31mBLOCKED:\033[0m commit message line %s contains a UUID-shaped literal: %s\n' "$line_no" "$match" >&2
+      violations=1
+    fi
+  done < <(grep -noE "$UUID_RE" "${scan_targets[0]}" 2>/dev/null || true)
+
+  LOCAL_PATTERNS="$REPO_ROOT/.identifier-patterns.local"
+  if [ -f "$LOCAL_PATTERNS" ]; then
+    while IFS= read -r pattern; do
+      case "$pattern" in ''|'#'*) continue ;; esac
+      if grep -qE "$pattern" "${scan_targets[0]}" 2>/dev/null; then
+        printf '\033[31mBLOCKED:\033[0m commit message matches a local identifier pattern\n' >&2
+        violations=1
+      fi
+    done < "$LOCAL_PATTERNS"
+  fi
+
+  [ "$violations" -eq 0 ] || {
+    printf '\nA commit message is as published as a file, and cannot be corrected after a\npush without rewriting history. Reword it.\n' >&2
+    exit 1
+  }
+  exit 0
 fi
 
 [ "${#files[@]}" -gt 0 ] || exit 0

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#
+# Rejects a commit message containing a live identifier.
+#
+# The identifier guard checked file contents only, and a message quoting a live
+# blueprint UUID and two smart-group names went onto a public repo unnoticed. A
+# message is as published as a file, and unlike a file it cannot be corrected after a
+# push without rewriting history — so this runs before the commit exists.
+#
+# Bypass with --no-verify only if you are certain, and prefer rewording.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec "$REPO_ROOT/scripts/check-no-identifiers.sh" --msg "$1"

@@ -44,6 +44,18 @@ jobs:
       - name: No live identifiers
         run: ./scripts/check-no-identifiers.sh
 
+      # Commit messages are as published as files, and the file guard never saw them.
+      # Checks every message on the branch that main does not already have.
+      - name: No live identifiers in commit messages
+        run: |
+          base=$(git rev-parse origin/main 2>/dev/null || git rev-list --max-parents=0 HEAD)
+          fail=0
+          for sha in $(git rev-list "$base"..HEAD 2>/dev/null); do
+            git log -1 --format='%B' "$sha" > /tmp/msg-$sha
+            ./scripts/check-no-identifiers.sh --msg /tmp/msg-$sha || { echo "  in commit $sha"; fail=1; }
+          done
+          exit $fail
+
       # Committed ADRs are immutable. Compares the PR head against main rather than
       # the index, since a pre-commit hook cannot police a branch pushed from a
       # clone that never installed the hooks.

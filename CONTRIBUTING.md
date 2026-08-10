@@ -49,8 +49,12 @@ deadbeef-0000-4000-8000-000000000001    ✅
 8dce9404-4779-49cc-825b-428ac74eddc9    ❌ indistinguishable from real
 ```
 
-Enforced by `scripts/check-no-identifiers.sh` in the pre-commit hook (staged files)
-and in CI (all files). For site-specific strings, create a gitignored
+Enforced by `scripts/check-no-identifiers.sh` in the pre-commit hook (staged files),
+in the **commit-msg hook** (the message itself), and in CI (all files). The message
+check exists because the guard originally covered only file contents, and a commit
+message quoting a live blueprint UUID and two smart-group names reached a public repo
+that way. A message is as published as a file, and unlike a file it cannot be corrected
+after a push without rewriting history. For site-specific strings, create a gitignored
 `.identifier-patterns.local` with one `grep -E` pattern per line — deliberately not
 committed, because a guard that enumerates what must not leak, leaks it.
 

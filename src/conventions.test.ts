@@ -134,4 +134,12 @@ describe('data-handling invariants', () => {
     expect(hook).toContain('check-adr-immutability.sh');
     expect(hook).toContain('check-no-identifiers.sh');
   });
+
+  // A commit message is as published as a file. The guard covered file contents only,
+  // and a message naming a live blueprint UUID and two smart-group names reached a
+  // public repo before anyone noticed.
+  it('checks the commit message for identifiers too', () => {
+    expect(read('.githooks/commit-msg')).toContain('check-no-identifiers.sh');
+    expect(read('scripts/check-no-identifiers.sh')).toContain('--msg');
+  });
 });
