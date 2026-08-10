@@ -76,7 +76,7 @@ scripts/
 .githooks/pre-commit    rejects force-added ignored files; enforces ADR immutability
 ```
 
-## Current state (as of 2026-08-06)
+## Current state (as of 2026-08-07)
 
 Working and confirmed against a live tenant:
 
@@ -204,7 +204,7 @@ against it would be a false promise.
 ## Testing
 
 ```bash
-npm test              # vitest, 270 tests
+npm test              # vitest, 297 tests
 npm run typecheck
 DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix, no credentials needed
 ```

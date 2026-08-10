@@ -10,10 +10,22 @@ guarantee.
 
 ## [Unreleased]
 
-Slated for 0.3.0. The theme is that several tools were stating conclusions more
-confidently than their evidence supported — a paging helper that returned an empty
-list for a response it could not read, and an audit that reported "no references"
-for a search term that could never have matched.
+Nothing yet.
+
+## [0.3.0] — 2026-08-10
+
+Five new tools and a theme: several tools were stating conclusions more confidently
+than their evidence supported — a paging helper that returned an empty list for a
+response it could not read, and an audit that reported "no references" for a search
+term that could never have matched. Where a null result cannot be trusted, coverage is
+now a field rather than an assumption.
+
+**Breaking, and deliberate.** `platformRequest` no longer accepts `method` or `body`,
+so the passthrough cannot express a mutation at all
+([JPM-0007](decisions/JPM-0007-write-path-posture.md)). `requestAll` now throws on
+`proclassic` instead of returning an empty array. Both are corrections to behaviour
+that was quietly wrong; the gateway remains in public beta and minor versions may carry
+breaking changes, as stated above.
 
 ### Added
 
