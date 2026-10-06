@@ -10,26 +10,30 @@ machine-readable index.
 gateway actually does — path shapes, status semantics, per-group response
 conventions. Where the two disagree, the live tenant wins and this file is wrong.
 
-**Path shapes:** two have returned 200, and both put the tenant in the path.
+**Path shapes, since Jamf's 2026 gateway move** (confirmed 2026-10-06):
 
 ```
-{base}/api/{service}/{version}/tenant/{tenantId}/{resource}    most groups
-{base}/api/proclassic/tenant/{tenantId}/{resource}             Classic — NO version
+https://{region}.api.jamfcloud.com/{service}/{version}/{resource}   most groups
+https://{region}.api.jamfcloud.com/proclassic/{resource}            Classic — NO version
++ exactly one header: X-Environment-Id (Platform environment integration) or X-Tenant-Id
 ```
 
 `{service}` may be **more than one segment** — Declaration Reporting is served at
-`/api/ddm/report/`.
+`/ddm/report/`. The service segment is *not* the scope prefix — Blueprints needs
+`read:pro:blueprints` but lives at `/blueprints/...`.
 
-**The docs omit `/api/{service}`.** Every path below is reproduced as documented,
-starting at `/v1/...`. The service segment must be prepended and is *not* the
-scope prefix — Blueprints needs `read:pro:blueprints` but lives at
-`/api/blueprints/...`. Run `scripts/discover-gateway.sh` to resolve segments
-empirically; results land in `fixtures/discovery-report.md`.
+**This inventory was compiled 2026-08-05, before the move.** Rows below reproduce the
+paths as Jamf documented them then, starting at `/v1/tenant/{tenantid}/...`. On the
+current gateway, drop the `tenant/{tenantid}/` segment and prepend the service
+segment. See [`gateway-reference.md`](gateway-reference.md#since-the-2026-move-confirmed-2026-10-06).
+`scripts/discover-gateway.sh` still probes the pre-move shape.
 
-Legend: **R** = reachable with read-only scopes · **W** = write. No write has ever
-been attempted, and per
-[JPM-0007](../decisions/JPM-0007-write-path-posture.md) the destructive ones never
-will be from this server.
+Legend: **R** = reachable with read-only scopes · **W** = write. No write listed here
+has been attempted. The only writes this project makes are Restricted Software create
+and update, on a separate server
+([JPM-0008](../decisions/JPM-0008-reversible-writes-as-a-separate-server.md)), and per
+[JPM-0007](../decisions/JPM-0007-write-path-posture.md) the destructive ones never will
+be.
 
 ## Resolved segments (corrected 2026-08-05)
 

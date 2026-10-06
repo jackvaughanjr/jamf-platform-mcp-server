@@ -7,16 +7,20 @@
 # independently of the TypeScript, so that when a tool call misbehaves you can
 # tell "the gateway changed" apart from "our client is wrong" in one command.
 #
-# ── Gateway path shape ───────────────────────────────────────────────────────
-#   /api/{service}/{version}/tenant/{tenantId}/{resource}
+# ── Gateway path shape (since Jamf's 2026 gateway move) ──────────────────────
+#   {base}/{service}/{version}/{resource}  +  X-Environment-Id: {environmentId}
 #
 # For Blueprints the service segment is "blueprints", NOT "pro":
-#   https://us.apigw.jamf.com/api/blueprints/v1/tenant/{tenantId}/blueprints
+#   https://us.api.jamfcloud.com/blueprints/v1/blueprints
+#
+# Blueprints is published at ENVIRONMENT scope only, so it needs a Platform
+# environment integration and its environment id in X-Environment-Id. With
+# X-Tenant-Id it answers 403 BAD_PERMISSIONS; with the tenant id sent as an
+# environment id, 404 ENVIRONMENT_NOT_FOUND.
 #
 # The "pro" in the required permission `read:pro:blueprints` is a *scope*
-# prefix, not a URL segment. Conflating the two yields /api/pro/v1/... and a
-# 404 that looks like a permissions problem. See src/platform-client.ts, whose
-# RequestOptions.service doc comment currently gives "pro" as its example.
+# prefix, not a URL segment. Conflating the two yields /pro/v1/... and a
+# 404 that looks like a permissions problem.
 #
 # ── Auth ─────────────────────────────────────────────────────────────────────
 #   POST {base}/auth/token, application/x-www-form-urlencoded,
@@ -24,9 +28,9 @@
 #   700s so a long detail loop cannot expire mid-run.
 #
 # ── Required env (matches .env.example) ──────────────────────────────────────
-#   JAMF_CLIENT_ID  JAMF_CLIENT_SECRET  JAMF_TENANT_ID
+#   JAMF_CLIENT_ID  JAMF_CLIENT_SECRET  JAMF_ENVIRONMENT_ID
 # ── Optional ─────────────────────────────────────────────────────────────────
-#   JAMF_GATEWAY_BASE_URL   default https://us.apigw.jamf.com
+#   JAMF_GATEWAY_BASE_URL   default https://us.api.jamfcloud.com
 #   JAMF_TOKEN_URL          default {base}/auth/token
 #   OUT                     default ./blueprints.json (gitignored)
 #
@@ -50,13 +54,13 @@ fi
 for cmd in curl jq; do
   command -v "$cmd" >/dev/null 2>&1 || die "$cmd is required but not on PATH"
 done
-for var in JAMF_CLIENT_ID JAMF_CLIENT_SECRET JAMF_TENANT_ID; do
+for var in JAMF_CLIENT_ID JAMF_CLIENT_SECRET JAMF_ENVIRONMENT_ID; do
   [ -n "${!var:-}" ] || die "$var is not set (see .env.example)"
 done
 
-BASE="${JAMF_GATEWAY_BASE_URL:-https://us.apigw.jamf.com}"
+BASE="${JAMF_GATEWAY_BASE_URL:-https://us.api.jamfcloud.com}"
 TOKEN_URL="${JAMF_TOKEN_URL:-${BASE}/auth/token}"
-BLUEPRINTS="${BASE}/api/blueprints/v1/tenant/${JAMF_TENANT_ID}/blueprints"
+BLUEPRINTS="${BASE}/blueprints/v1/blueprints"
 OUT="${OUT:-$REPO_ROOT/blueprints.json}"
 
 # ── token, refreshed proactively ─────────────────────────────────────────────
@@ -86,10 +90,13 @@ auth() {
   printf 'Authorization: Bearer %s' "$TOKEN"
 }
 
-api() { curl -sS --fail-with-body -H "$(auth)" -H 'Accept: application/json' "$1"; }
+api() {
+  curl -sS --fail-with-body -H "$(auth)" -H 'Accept: application/json' \
+    -H "X-Environment-Id: ${JAMF_ENVIRONMENT_ID}" "$1"
+}
 
 # ── list (page is 0-based; page-size default 100) ────────────────────────────
-note "gateway ${BASE}  tenant ${JAMF_TENANT_ID:0:8}…"
+note "gateway ${BASE}  environment ${JAMF_ENVIRONMENT_ID:0:8}…"
 get_token
 
 IDS="$(mktemp)"; RAW="$(mktemp)"

@@ -3,6 +3,15 @@
 # discover-gateway.sh — resolve Jamf Platform API Gateway service segments and
 # record response schemas.
 #
+# STATUS (2026-10-06): this script targets the PRE-MOVE gateway — host
+# {region}.apigw.jamf.com, paths /api/{service}/{version}/tenant/{tenantId}/... .
+# Jamf moved the gateway between 2026-08-10 and 2026-10-06: the host is now
+# {region}.api.jamfcloud.com, paths drop /api/ and the tenant segment, and the
+# tenant or environment travels in an X-Tenant-Id / X-Environment-Id header. Its
+# results will not reflect the current gateway until it is rewritten. The MCP
+# server itself is current (src/platform-client.ts); see
+# docs/gateway-reference.md, "Since the 2026 move".
+#
 # WHY THIS EXISTS
 # The published docs give endpoint paths starting at /v1/tenant/{tenantid}/...
 # and omit the /api/{service} prefix entirely. That omission already cost us one

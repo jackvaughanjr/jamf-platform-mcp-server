@@ -46,6 +46,15 @@ guarantee.
   passthrough never writes are unchanged.
 - Config loading and result rendering moved to `src/mcp-common.ts`, so a second
   server entry point can share them.
+- Documentation brought up to date with the gateway move and the write server:
+  README (current state, setup at the Platform environment level, write-server
+  registration), CONTRIBUTING (write tools now go through JPM-0008), CLAUDE.md,
+  `docs/capabilities.md` (a Restricted Software section), and dated notes in
+  `docs/gateway-reference.md` and `docs/endpoint-inventory.md` marking which findings
+  predate the move.
+- `scripts/fetch-blueprints.sh` targets the current gateway and needs
+  `JAMF_ENVIRONMENT_ID`. `scripts/discover-gateway.sh` is marked as still probing the
+  pre-move gateway; it has not been rewritten.
 
 ### Unverified
 

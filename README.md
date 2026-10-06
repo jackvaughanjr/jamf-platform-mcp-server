@@ -15,6 +15,11 @@ rather than user-account tokens. That choice is the point of the project: scoped
 machine credentials mean the permission boundary is enforced by Jamf, so a
 read-only integration cannot mutate a fleet no matter what this code does. See
 [JPM-0001](decisions/JPM-0001-target-platform-api-gateway.md).
+
+A second, optional server built from the same code makes a deliberately narrow set
+of reversible writes, today Restricted Software create and update, under its own
+credential ([JPM-0008](decisions/JPM-0008-reversible-writes-as-a-separate-server.md)).
+The read server never gains a write tool.
 Canonical location: `github.com/jackvaughanjr/jamf-platform-mcp-server`.
 
 **Tier:** Prototype — no production dependants, upstream API in public beta, minor
@@ -71,17 +76,25 @@ fixtures/
   raw/                  captured responses — GITIGNORED, live fleet data
   discovery-report.md   empirical record of what resolves
 scripts/
-  discover-gateway.sh   resolves service segments, enumerates hosting, derives shapes
-  fetch-blueprints.sh   standalone Blueprints smoke test
+  discover-gateway.sh   resolves service segments; probes the PRE-2026-move gateway
+  fetch-blueprints.sh   standalone Blueprints smoke test (current gateway)
   jamf                  cwd-independent wrapper: scripts/jamf <tool> ['<json>']
   call-tool.mjs         calls one MCP tool live; inherits env so `op run` works
   check-adr-immutability.sh
 .githooks/pre-commit    rejects force-added ignored files; enforces ADR immutability
 ```
 
-## Current state (as of 2026-08-07)
+## Current state (as of 2026-10-06)
 
-Working and confirmed against a live tenant:
+**Jamf moved the gateway between 2026-08-10 and 2026-10-06.** The host is now
+`{region}.api.jamfcloud.com`, paths drop the `/api/` prefix and the tenant segment,
+and the tenant or environment travels in a header. Pre-move integrations did not
+survive; create a **Platform environment** integration. Details in
+[docs/gateway-reference.md](docs/gateway-reference.md#since-the-2026-move-confirmed-2026-10-06).
+
+Working and confirmed against a live tenant, re-confirmed on the new gateway
+2026-10-06 (path below the host is `/{segment}/{version}/{resource}`, or
+`/proclassic/{resource}`):
 
 | segment | style | resource | notes |
 |---|---|---|---|
@@ -113,12 +126,17 @@ and `findCriteriaReferences` (compound), `listBlueprints` and
 count stays deliberately small
 ([JPM-0003](decisions/JPM-0003-passthrough-plus-selective-typed-tools.md)).
 
+Write server: `createRestrictedSoftware` and `updateRestrictedSoftware`, nothing else.
+Its read path is confirmed live against real entries; **a live write has not yet been
+made through it**, so the XML request body, which Jamf's pages do not publish, is
+still unverified.
+
 Pagination is confirmed live: a real page-1 request returned different records with
 `hasPrevious: true` and `totalPages: 13`, so `page` is 0-based as assumed and query
 parameters survive the passthrough.
 
-`device-actions` remains unverified, because every route in it is a write and no
-write scopes have been granted.
+`device-actions` remains unverified, because every route in it is a write and its
+scopes are never granted (JPM-0007, unchanged by JPM-0008).
 
 ## Setup
 
@@ -128,8 +146,11 @@ cp .env.op.example .env.op     # edit to match your 1Password vault/item
 npm run build
 ```
 
-Create an integration in **Jamf Account → Integrations**. A read-only integration
-is sufficient and strongly preferred. The client secret is shown exactly once.
+Create an integration in **Jamf Account → Integrations** at the **Platform
+environment** level, choosing the environment that contains your Jamf Pro tenant. A
+read-only integration is sufficient and strongly preferred. The client secret is
+shown exactly once. The level cannot be changed later, and the legacy **Tenant**
+level cannot reach Blueprints.
 
 | Variable | Required | Notes |
 |---|---|---|
@@ -143,9 +164,10 @@ is sufficient and strongly preferred. The client secret is shown exactly once.
 
 ### Write posture
 
-A read-only integration (above) is this project's supported configuration, not a
-starter mode to graduate from
-([JPM-0007](decisions/JPM-0007-write-path-posture.md)). Scopes that can erase or
+A read-only integration (above) is the read server's supported configuration, not
+a starter mode to graduate from
+([JPM-0007](decisions/JPM-0007-write-path-posture.md)). Writes live in a separate
+server under a separate credential (below). Scopes that can erase or
 unmanage a device are never granted to this server — not gated, not granted, in
 any configuration. That work belongs in Jamf Pro's own interface, where it is
 attributed to a named person and lands in Jamf's audit log.
@@ -179,20 +201,19 @@ tools in any configuration.
   can never write.
 - **Its own env file**, with `JAMF_READ_ONLY=false`. With the flag on, the server
   still starts and dry runs still work, but every real write refuses.
-- **Registered per project, not globally.** Put it in the `.mcp.json` of the
-  repository that holds the Jamf change log, so its tools appear only there:
+- **Registered per project, not globally.** Register it only in the repository that
+  holds your Jamf change log, so its tools appear only there. Local scope keeps the
+  machine paths out of that repository; run this from inside it:
 
-  ```json
-  {
-    "mcpServers": {
-      "jamf-platform-write": {
-        "command": "op",
-        "args": ["run", "--env-file=/absolute/path/to/.env.op.write", "--",
-                 "node", "/absolute/path/to/dist/write-server.js"]
-      }
-    }
-  }
+  ```bash
+  claude mcp add -s local jamf-platform-write -- \
+    op run --env-file=/absolute/path/to/.env.op.write -- \
+    node /absolute/path/to/dist/write-server.js
   ```
+
+  Consider an `ask` permission rule for `mcp__jamf-platform-write` in that
+  repository's `.claude/settings.local.json`, so every write prompts even in
+  accept-edits mode.
 
 Both tools default to `dryRun: true`, which returns the exact XML and a
 field-by-field diff and writes nothing. A real write reads the entry back and reports
@@ -251,7 +272,7 @@ against it would be a false promise.
 ```bash
 npm test              # vitest, 338 tests
 npm run typecheck
-DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix, no credentials needed
+DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix (pre-move gateway shapes; see the script header)
 ```
 
 To exercise a tool against a live tenant, from any directory:

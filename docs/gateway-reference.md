@@ -1,7 +1,14 @@
 # Jamf Platform API Gateway — observed behaviour
 
 Empirical findings about a product in public beta, established against a live tenant
-from 2026-08-04 onward and last extended on 2026-08-06. These are **observations, not
+from 2026-08-04 onward and last extended on 2026-10-06.
+
+**Jamf moved the gateway between 2026-08-10 and 2026-10-06** (host, path shape, how the
+tenant is passed): read [Since the 2026 move](#since-the-2026-move-confirmed-2026-10-06)
+first. Sections observed before the move keep their dates. Their route-level findings
+(envelopes, paging families, per-operation versions, documentation traps) were
+re-confirmed where the tools use them. Their literal paths and the status-code tables
+describe the old gateway unless a note says otherwise. These are **observations, not
 decisions**, and they will change as Jamf ships more of the gateway. Decisions live in
 [`decisions/`](../decisions/).
 
@@ -202,14 +209,14 @@ form noted elsewhere. Do not derive one from the other.
 **`patch_policies` is the one key not to trust.** Its page publishes no `xml.name` and
 the key is inferred from the component schema name. Shipping Classic has a long-standing
 quirk of returning `"patch policies"` *with a space* here. Prefer the Jamf Pro API's
-`/api/pro/v2/tenant/{t}/patch-policies`, which returns an unambiguous
+`/pro/v2/patch-policies`, which returns an unambiguous
 `{totalCount, results[]}`.
 
 **A patch policy carries no package reference at all.** `patch_policy` has exactly four
 properties — `general`, `scope`, `software_title_configuration_id`, `user_interaction` —
 and the word `package` appears nowhere in the Classic OpenAPI document. The package
 lives on the software title configuration, at
-`/api/pro/v3/tenant/{t}/patch-software-title-configurations/{id}`, whose `packages[]`
+`/pro/v3/patch-software-title-configurations/{id}`, whose `packages[]`
 carry `packageId`. So a package-to-patching reference check must route through the
 configuration; checking patch policies alone will always find nothing.
 
@@ -244,8 +251,10 @@ uses three, so a three-backtick extractor returns empty rather than failing.
 
 ### Confirmed Classic routes under `proclassic`
 
-All verified live. Path shape is `/api/proclassic/tenant/{tenantId}/{resource}`,
-no version segment, no `/JSSResource/` prefix.
+All verified live; the routes the tools use were re-confirmed on the new gateway
+2026-10-06. Path shape is now `/proclassic/{resource}` (was
+`/api/proclassic/tenant/{tenantId}/{resource}`), no version segment, no
+`/JSSResource/` prefix.
 
 | resource | detail path | notes |
 |---|---|---|
@@ -280,8 +289,8 @@ Nothing generic should assume one response shape.
 Three traps, each of which cost real time:
 
 **The service segment is not the scope prefix.** Blueprints requires the scope
-`read:pro:blueprints` but lives at `/api/blueprints/...`. Deriving the segment from
-the scope name yields `/api/pro/...` and a 404 that reads like a permissions error.
+`read:pro:blueprints` but lives at `/blueprints/...`. Deriving the segment from
+the scope name yields `/pro/...` and a 404 that reads like a permissions error.
 
 **Resource names are fully qualified, not relative to their service.** Blueprint
 components is `blueprint-components`, not `components`, despite sitting under the
@@ -292,8 +301,8 @@ v1, `enrollment` v3, `computers-inventory` v4 — and `computer-prestages` is **
 CRUD while its own scope sub-resource is v2**, published on the same reference page:
 
 ```
-GET /api/pro/v3/tenant/{t}/computer-prestages          list and detail
-GET /api/pro/v2/tenant/{t}/computer-prestages/{id}/scope
+GET /pro/v3/computer-prestages          list and detail
+GET /pro/v2/computer-prestages/{id}/scope
 ```
 
 So deriving a version from a resource name is wrong, not just risky. This corrects an
@@ -317,6 +326,9 @@ The slugs in a group's `llms.txt` are URLs. `listcomponents` names the
 segment; `getdevicechannels` names `ddm/report`.
 
 ## Hosted service segments
+
+*Observed on the pre-move gateway (2026-08). Not re-run since the move:
+`scripts/discover-gateway.sh` still probes the old host and path shape.*
 
 Enumerable, because a route that cannot exist returns 403 under a hosted segment
 and 404 under one the gateway does not serve, so no valid route need be known.
@@ -348,6 +360,11 @@ Note the segment is `device-actions`, not the documented group name
 `device-management-actions`, which is not hosted.
 
 ## Status code semantics
+
+*Pre-move gateway. Since the move, two new answers were observed: 404
+`ENVIRONMENT_NOT_FOUND` when `X-Environment-Id` carries an id that is not an
+environment (such as the tenant id), and 403 `BAD_PERMISSIONS` from an
+environment-only service such as Blueprints when addressed with `X-Tenant-Id`.*
 
 Settled by negative control, not inference:
 
@@ -432,6 +449,10 @@ from the service segment, `requestAll` refuses `proclassic` outright and names
 reporting nothing found.
 
 ## `flat` style does not work
+
+*Superseded by the move: no route carries a tenant segment now, `flat` builds the same
+path as `tenant`, and `X-Tenant-Id`, ignored below, is now one of the two scope headers
+the gateway requires. Kept as the pre-move record.*
 
 No confirmed route omits the tenant segment. Every flat request returns 400
 `REQUEST_CONTEXT_NOT_PROVIDED`, including one to a route that cannot exist, so the
