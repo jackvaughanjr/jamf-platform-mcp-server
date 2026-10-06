@@ -1,14 +1,16 @@
 # What this server can answer
 
-Fifteen tools over the Jamf Platform API Gateway, organised by question. You rarely
+Fifteen read tools over the Jamf Platform API Gateway, plus two write tools on a
+separate server, organised by question. You rarely
 know which endpoint you need when you start.
 
 Two properties shape the rest of this page.
 
-**It cannot change anything.** Every tool is a read. `platformRequest` offers no
-`method` or `body`, so the passthrough cannot express a mutation, and scopes that
-could erase or unmanage a device are never granted to this server
-([JPM-0007](../decisions/JPM-0007-write-path-posture.md)).
+**It cannot change anything.** Every tool on this page is a read. `platformRequest`
+offers no `method` or `body`, so the passthrough cannot express a mutation, and scopes
+that could erase or unmanage a device are never granted to this server
+([JPM-0007](../decisions/JPM-0007-write-path-posture.md)). The few writes this project
+makes live in a separate server, covered at the end of this page.
 
 **It reports what it did not check.** Several tools answer questions where a confident
 "nothing found" is the dangerous answer, so coverage is a field: `strength`,
@@ -134,15 +136,38 @@ means roughly 3 things configured.
 ## Everything else on the gateway
 
 `platformRequest` reaches any route, including the Jamf Pro API's 300+ endpoints and
-Classic's 500+. Use `style: 'classic'` for Classic: it builds
-`/tenant/{tenantId}/{resource}` with no version segment and fills the tenant in, which
-`rawPath` does not. It is GET-only.
+Classic's 500+. Use `style: 'classic'` for Classic: it builds `/proclassic/{resource}`
+with no version segment. The tenant or environment travels in a header the client
+adds, never in the path. It is GET-only.
+
+## Restricted Software: block an app from running (write server)
+
+`createRestrictedSoftware` and `updateRestrictedSoftware`, on the separate write server
+([JPM-0008](../decisions/JPM-0008-reversible-writes-as-a-separate-server.md)), which
+runs under its own integration and is registered per project.
+
+- **Nothing defaults.** Scope, including `allComputers`, and every setting must be
+  stated on create. A name that already exists is refused.
+- **Dry run first.** Both tools default to `dryRun: true`, returning the exact XML and
+  a field-by-field diff without writing.
+- **Updates touch only what you pass.** Scope is left alone unless a complete
+  replacement is given. A live scope using user exclusions or limitations, which the
+  tool cannot represent, makes a scope change refuse rather than drop them.
+- **Jamf's own rules are enforced:** `deleteExecutable` requires
+  `matchExactProcessName`; substring matches under 6 characters are refused.
+- **Every write is read back and checked**, and the result carries rollback
+  arguments. To switch an entry off without deleting it, update its scope to
+  `{"allComputers": false}`. Deletion is done in the Jamf UI.
+
+Not yet confirmed by a live write: the XML request body, which Jamf's operation pages
+do not publish.
 
 ---
 
 ## What it cannot do
 
-- **Change anything.** No writes, by decision and by credential scope.
+- **Change anything from the read server.** No writes, by decision and by credential
+  scope. The write server changes only Restricted Software, and never deletes.
 - **See `PENDING` declarations**, or any device that has not reported at all.
 - **Prove a negative on its own.** Every "nothing found" is bounded by what was
   checked; the tools say what that was.

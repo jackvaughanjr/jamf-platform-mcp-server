@@ -15,17 +15,20 @@ npm run build
 `npm install` is what installs the git hooks. If you skip it and commit anyway, CI
 will catch what the hooks would have.
 
-A Jamf Platform API Gateway integration (Jamf Account → Integrations) is needed to
-run anything against a live tenant. **A read-only integration is sufficient and
-strongly preferred** — the gateway's scopes are the safety boundary, not this code
+A Jamf Platform API Gateway integration (Jamf Account → Integrations, level
+**Platform environment**) is needed to run anything against a live tenant. **A
+read-only integration is sufficient and strongly preferred** — the gateway's scopes
+are the safety boundary, not this code
 ([JPM-0001](decisions/JPM-0001-target-platform-api-gateway.md)).
 
-**Adding a write tool is not an ordinary contribution.** JPM-0007 decided that no
-read-write integration is provisioned and none is planned — read-only is this
-project's supported configuration, not a phase to graduate from. Reversing that
-decision needs a superseding ADR, the same as correcting any other committed
-decision; a PR that adds a write-capable tool without one is changing what this
-project decided against
+**Adding a write tool is not an ordinary contribution.** Writes live only in the
+separate write server, `src/write-server.ts`, under its own credential
+([JPM-0008](decisions/JPM-0008-reversible-writes-as-a-separate-server.md)). Each new
+write tool needs its own ADR, an update to the enumerated tool list in
+`src/conventions.test.ts` (which fails otherwise), and the shape of
+`src/restricted-software.ts`: no defaults, dry run by default, read-modify-write on
+update, verification by read-back, and a rollback in every result. The read server
+never gains a write tool, and destructive scopes, delete included, are never granted
 ([JPM-0007](decisions/JPM-0007-write-path-posture.md)).
 
 ```bash

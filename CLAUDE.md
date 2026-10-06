@@ -45,7 +45,11 @@ op run --env-file=.env.op -- ./scripts/discover-gateway.sh
 Only `.env.op.example` is tracked. A real `.env.op` holds no secrets — just
 `op://` references — but those references name a local 1Password vault and item,
 which is org-internal detail that does not belong in a repo shared outside the
-company. Keep it untracked.
+company. Keep it untracked. The write server uses a second file, `.env.op.write`,
+pointing at its own integration's item; never point the read server at it.
+
+`op://` references reject some characters in an item title, `[` among them. Refer
+to such an item by its 1Password item id instead.
 
 If `OP_SERVICE_ACCOUNT_TOKEN` is exported globally, `op` authenticates as that
 service account rather than prompting for biometrics, and sees only the vaults
@@ -79,10 +83,10 @@ Only JSON-RPC may go to stdout. Logs go to stderr. `dotenv` is loaded with
 2. Pass `version` explicitly; Jamf Pro versions are per **operation**, not merely per
    resource — `computer-prestages` is v3 for CRUD and v2 for its own scope
    sub-resource. Read the version off the operation page every time. For Jamf Pro
-   Classic use `style: 'classic'`, which builds `/tenant/{tenantId}/{resource}` with
-   no version and fills the tenant in. Reaching Classic through `rawPath` means the
-   caller supplying the tenant id, and an empty one yields `/tenant//{resource}` and a
-   400 that blames token context rather than the blank value.
+   Classic use `style: 'classic'`, which builds `/proclassic/{resource}` with
+   no version. Never put a tenant id in a path: since Jamf's 2026 gateway move the
+   tenant or environment travels in a scope header that the client adds, and the old
+   `/api/…/tenant/{id}/…` shape answers a 400 that blames request context.
 3. Prefer extending `platformRequest` usage over adding a typed tool until a
    workflow justifies one
    ([JPM-0003](decisions/JPM-0003-passthrough-plus-selective-typed-tools.md)).
