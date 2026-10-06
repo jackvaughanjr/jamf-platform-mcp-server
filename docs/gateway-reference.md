@@ -12,6 +12,49 @@ file is the newer record.
 
 ## Path shapes
 
+### Since the 2026 move (confirmed 2026-10-06)
+
+Jamf moved the gateway between 2026-08-10 and 2026-10-06. Everything below this
+subsection that shows `/api/…/tenant/{t}/…` or `us.apigw.jamf.com` describes the old
+gateway and is kept as history.
+
+```
+host     https://{region}.api.jamfcloud.com          (was {region}.apigw.jamf.com)
+token    {host}/auth/token
+paths    {host}/{service}/{version}/{resource}        most groups   → style 'tenant'
+         {host}/proclassic/{resource}                 Classic       → style 'classic'
+scope    X-Tenant-Id: {tenantId}        or    X-Environment-Id: {environmentId}
+```
+
+- **No `/api/` prefix and no tenant segment.** The tenant travels in a header. Each
+  operation page says to send exactly one scope header.
+- **Blueprints is environment-scoped.** With `X-Tenant-Id` it answers **403
+  `BAD_PERMISSIONS`**, and with the tenant id sent as `X-Environment-Id` it answers
+  **404 `ENVIRONMENT_NOT_FOUND`**. The environment id is under Jamf Account → Platform
+  Environments and is not the tenant id.
+- **Confirmed 200 with `X-Tenant-Id`:** `devices` (list, detail), `device-groups` (list,
+  members), `ddm/report` `devices/{id}/channels`, Classic `computergroups`, `policies`,
+  `osxconfigurationprofiles`, `advancedcomputersearches`,
+  `computerextensionattributes`, `restrictedsoftware`, `scripts`, and `pro` v1/v2
+  `computer-inventory-collection-settings`. `ddm/report` `devices/{id}/declarations`
+  still requires `filter`.
+- **Integration level decides reach.** Jamf Account offers three levels per
+  integration, fixed at creation: Organization management, Platform environment, and
+  Tenant (labelled legacy). A **Platform environment** integration reached every route
+  above with `X-Environment-Id`, Blueprints and `blueprint-components` included, and
+  accepted `X-Tenant-Id` too. A **Tenant** integration reached everything except
+  Blueprints. The server therefore sends `X-Environment-Id` everywhere once
+  `JAMF_ENVIRONMENT_ID` is set.
+- **The old shape fails misleadingly.** On the old host it answers 400
+  `REQUEST_CONTEXT_NOT_PROVIDED`, which reads like a path or tenant problem.
+- **Integrations did not survive the move.** The read-only integration created
+  2026-08-04 vanished from Jamf Account → Integrations, and its credentials answered
+  401 `invalid_client`. A replacement must be a Platform API integration from Jamf
+  Account. A Jamf Pro API client (Settings → API roles and clients, 64-character
+  secret) is also rejected with 401.
+
+### Before the move (2026-08-04 to 2026-08-10)
+
 Two shapes have returned 200. Both put the tenant in the path; nothing without it
 has ever worked.
 

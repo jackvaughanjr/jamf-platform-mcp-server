@@ -11,14 +11,14 @@ const base = {
 describe('loadConfig', () => {
   it('defaults to the US gateway and derives the token URL from it', () => {
     const config = loadConfig({ ...base });
-    expect(config.gatewayBaseUrl).toBe('https://us.apigw.jamf.com');
-    expect(config.tokenUrl).toBe('https://us.apigw.jamf.com/auth/token');
+    expect(config.gatewayBaseUrl).toBe('https://us.api.jamfcloud.com');
+    expect(config.tokenUrl).toBe('https://us.api.jamfcloud.com/auth/token');
   });
 
   it('strips trailing slashes so the derived token URL has no double slash', () => {
-    const config = loadConfig({ ...base, JAMF_GATEWAY_BASE_URL: 'https://eu.apigw.jamf.com///' });
-    expect(config.gatewayBaseUrl).toBe('https://eu.apigw.jamf.com');
-    expect(config.tokenUrl).toBe('https://eu.apigw.jamf.com/auth/token');
+    const config = loadConfig({ ...base, JAMF_GATEWAY_BASE_URL: 'https://eu.api.jamfcloud.com///' });
+    expect(config.gatewayBaseUrl).toBe('https://eu.api.jamfcloud.com');
+    expect(config.tokenUrl).toBe('https://eu.api.jamfcloud.com/auth/token');
   });
 
   it('honours an explicit token URL override', () => {
@@ -47,8 +47,18 @@ describe('loadConfig', () => {
     }
     expect(message).toContain('JAMF_CLIENT_ID');
     expect(message).toContain('JAMF_CLIENT_SECRET');
-    expect(message).toContain('JAMF_TENANT_ID');
+    expect(message).toContain('JAMF_ENVIRONMENT_ID');
     expect(message).toContain('.env.example');
+  });
+
+  it('accepts an environment id alone, the current Platform integration kind', () => {
+    const config = loadConfig({ JAMF_CLIENT_ID: 'id', JAMF_CLIENT_SECRET: 's', JAMF_ENVIRONMENT_ID: 'env' });
+    expect(config.environmentId).toBe('env');
+    expect(config.tenantId).toBeUndefined();
+  });
+
+  it('requires one of tenant id or environment id', () => {
+    expect(() => loadConfig({ JAMF_CLIENT_ID: 'id', JAMF_CLIENT_SECRET: 's' })).toThrow(/JAMF_ENVIRONMENT_ID.*JAMF_TENANT_ID/);
   });
 
   it('rejects a non-URL gateway base', () => {

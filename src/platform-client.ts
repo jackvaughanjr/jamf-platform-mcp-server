@@ -28,44 +28,42 @@ export interface RequestOptions {
    * Gateway service segment, e.g. "blueprints".
    *
    * Do NOT derive this from the permission scope. Blueprints requires the scope
-   * `read:pro:blueprints` but lives at /api/blueprints/... — the "pro" is a
+   * `read:pro:blueprints` but lives at /blueprints/... — the "pro" is a
    * scope prefix, not a URL segment. Getting this wrong yields a 404 that reads
    * like a permissions failure and costs an hour. Confirm each service segment
    * against the reference (or scripts/fetch-blueprints.sh) before adding a tool.
    */
   service: string;
-  /** Resource path below the tenant segment, e.g. "blueprints". */
+  /** Resource path below the version segment, e.g. "blueprints". */
   resource?: string;
   /**
-   * Everything after `/api/{service}`, used verbatim. The escape hatch for
-   * shapes the templates cannot express — notably Jamf Pro Classic, which is
-   * `/tenant/{tenantId}/{resource}` with no version segment at all, so neither
-   * template fits. There is no `/JSSResource/` prefix on the gateway.
-   * Nothing is inserted, so the tenant segment must be supplied here.
-   * Takes precedence over `resource` / `version` / `style`.
+   * Everything after `/{service}`, used verbatim. The escape hatch for shapes the
+   * templates cannot express. Nothing is inserted. Takes precedence over
+   * `resource` / `version` / `style`.
    */
   rawPath?: string;
   /**
-   * Path layout. `tenant` (default) is `/{version}/tenant/{tenantId}/{resource}`
-   * and is the ONLY layout ever observed to return 200.
+   * Path layout. `tenant` (default) is `/{service}/{version}/{resource}`.
    *
-   * `classic` is `/tenant/{tenantId}/{resource}` with NO version segment, which is
-   * Jamf Pro Classic's shape. It exists so a caller never has to know the tenant id:
-   * expressing Classic through `rawPath` means interpolating the tenant by hand, and a
-   * caller that does not have it produces `/tenant//resource` and a 400 that names
-   * REQUEST_CONTEXT_NOT_PROVIDED without hinting that a variable was empty.
+   * `classic` is `/{service}/{resource}` with NO version segment, which is Jamf
+   * Pro Classic's shape.
    *
-   * `flat` omits the tenant segment because some documented paths show none
-   * (Declaration Reporting is published as `/v1/devices/{deviceId}/declarations`).
-   * It has never worked. Every flat request — including one to a route that
-   * cannot exist — returns 400 REQUEST_CONTEXT_NOT_PROVIDED, so the gateway
-   * resolves tenant context before routing and rejects any path lacking it.
-   * Ten candidate tenant-header spellings were all ignored. Retained only
-   * because the error text says context may come "in token or headers", which
-   * hints the token could be bound to a tenant at issue time — untested.
-   * Prefer `tenant`.
+   * `flat` builds the same path as `tenant`. Before the 2026 gateway move the
+   * tenant id was a path segment and `flat` was the variant without it; the tenant
+   * now travels in a header for every style, so the distinction is gone. Kept so
+   * existing callers keep working.
    */
   style?: 'tenant' | 'flat' | 'classic';
+  /**
+   * Which scope header addresses the request. Jamf's operation pages say to send
+   * exactly one: `X-Tenant-Id` or `X-Environment-Id`.
+   *
+   * Inferred from `service` when omitted (see `inferScopeHeader`). Blueprints is
+   * published at environment scope only: with the tenant id it answers 403
+   * BAD_PERMISSIONS, and with the tenant id sent as an environment id it answers
+   * 404 ENVIRONMENT_NOT_FOUND. Neither message says "wrong header".
+   */
+  scope?: 'tenant' | 'environment';
   /**
    * API version segment, defaults to "v1".
    *
@@ -158,6 +156,22 @@ const PAGING_FAMILY_BY_SERVICE: Readonly<Record<string, PagingFamily>> = {
 export function inferPagingFamily(service: string): PagingFamily {
   const key = service.trim().replace(/^\/+|\/+$/g, '').toLowerCase();
   return PAGING_FAMILY_BY_SERVICE[key] ?? 'page-size';
+}
+
+/**
+ * Segments published at environment scope only, so they need `X-Environment-Id`.
+ * Everything else takes `X-Tenant-Id`. An exception list for the same reason as
+ * `PAGING_FAMILY_BY_SERVICE`.
+ *
+ * Keyed by service segment, so `blueprint-components` (a resource under the
+ * `blueprints` segment) is covered too. Confirmed 2026-10-06: with `X-Tenant-Id`
+ * the blueprints list answers 403 BAD_PERMISSIONS.
+ */
+const ENVIRONMENT_SCOPED_SERVICES: ReadonlySet<string> = new Set(['blueprints']);
+
+export function inferScopeHeader(service: string): 'tenant' | 'environment' {
+  const key = service.trim().replace(/^\/+|\/+$/g, '').toLowerCase();
+  return ENVIRONMENT_SCOPED_SERVICES.has(key) ? 'environment' : 'tenant';
 }
 
 export interface RequestAllOptions extends RequestOptions {
@@ -319,16 +333,15 @@ export class JamfPlatformClient {
   }
 
   /**
-   * Builds a gateway URL. Three shapes are reachable:
+   * Builds a gateway URL:
    *
-   *   style 'tenant' (default)  /api/{service}/{version}/tenant/{tenantId}/{resource}
-   *   style 'classic'           /api/{service}/tenant/{tenantId}/{resource}   (no version)
-   *   style 'flat'              /api/{service}/{version}/{resource}
-   *   rawPath                   /api/{service}{rawPath}          (verbatim)
+   *   style 'tenant' / 'flat'   {base}/{service}/{version}/{resource}
+   *   style 'classic'           {base}/{service}/{resource}            (no version)
+   *   rawPath                   {base}/{service}{rawPath}              (verbatim)
    *
-   * rawPath exists because Jamf Pro Classic is `/tenant/{tenantId}/{resource}`
-   * with no version segment, which neither template can produce — `tenant` always
-   * inserts a version and `flat` always drops the tenant.
+   * No tenant in the path: since the 2026 gateway move it travels in a scope
+   * header (`scopeHeaders`). The old shape, `/api/{service}/{version}/tenant/{id}/…`
+   * on `us.apigw.jamf.com`, now answers 400 REQUEST_CONTEXT_NOT_PROVIDED.
    */
   buildUrl(options: RequestOptions): string {
     let suffix: string;
@@ -341,19 +354,42 @@ export class JamfPlatformClient {
       }
       const version = options.version ?? 'v1';
       const resource = options.resource.replace(/^\/+/, '');
-      suffix =
-        options.style === 'classic'
-          ? `/tenant/${this.config.tenantId}/${resource}`
-          : options.style === 'flat'
-            ? `/${version}/${resource}`
-            : `/${version}/tenant/${this.config.tenantId}/${resource}`;
+      suffix = options.style === 'classic' ? `/${resource}` : `/${version}/${resource}`;
     }
 
-    const url = new URL(`${this.config.gatewayBaseUrl}/api/${options.service}${suffix}`);
+    const url = new URL(`${this.config.gatewayBaseUrl}/${options.service}${suffix}`);
     for (const [key, value] of Object.entries(options.query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
     return url.toString();
+  }
+
+  /**
+   * The one scope header a request carries.
+   *
+   * With an environment id configured, every request sends `X-Environment-Id`:
+   * confirmed 2026-10-06, a Platform environment integration reaches every route
+   * the tools use that way, Blueprints included. Without one (a legacy Tenant
+   * integration) requests send `X-Tenant-Id`, and environment-only services throw
+   * here with a pointed message instead of a 403 that blames permissions.
+   */
+  scopeHeaders(options: Pick<RequestOptions, 'service' | 'scope'>): Record<string, string> {
+    const scope = options.scope ?? (this.config.environmentId ? 'environment' : inferScopeHeader(options.service));
+    if (scope === 'environment') {
+      if (!this.config.environmentId) {
+        throw new Error(
+          `${options.service} is published at environment scope and needs JAMF_ENVIRONMENT_ID, which is not set. ` +
+            'That takes a Platform environment integration (Jamf Account > Integrations); a Tenant-level ' +
+            'integration cannot reach it. The environment id is under Platform Environments and is not the ' +
+            'tenant id: sending the tenant id here answers 404 ENVIRONMENT_NOT_FOUND.',
+        );
+      }
+      return { 'X-Environment-Id': this.config.environmentId };
+    }
+    if (!this.config.tenantId) {
+      throw new Error('This request asked for tenant scope, but JAMF_TENANT_ID is not set.');
+    }
+    return { 'X-Tenant-Id': this.config.tenantId };
   }
 
   async request<T = unknown>(options: RequestOptions): Promise<T> {
@@ -367,6 +403,7 @@ export class JamfPlatformClient {
     }
 
     const url = this.buildUrl(options);
+    const scopeHeaders = this.scopeHeaders(options);
     const label = options.rawPath ?? options.resource ?? '(unknown)';
     const token = await this.getAccessToken();
 
@@ -375,6 +412,7 @@ export class JamfPlatformClient {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/json',
+        ...scopeHeaders,
         ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),

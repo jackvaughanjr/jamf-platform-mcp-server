@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
-
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -22,7 +20,6 @@ import {
   type JamfCriterion,
   type PolicyGeneral,
 } from './automations.js';
-import { loadConfig } from './config.js';
 import { summarizeDeclarationScope } from './declaration-scope.js';
 import {
   enrichGroupMembers,
@@ -39,6 +36,7 @@ import {
   type DeviceGroupRecord,
   type DeviceRecord,
 } from './fleet.js';
+import { asContent, asError, packageVersion, requireConfig } from './mcp-common.js';
 import { JamfPlatformApiError, JamfPlatformClient } from './platform-client.js';
 import {
   buildGroupDependencyGraph,
@@ -47,65 +45,13 @@ import {
   findObjectReferences,
 } from './references.js';
 
-function requireConfig() {
-  try {
-    return loadConfig();
-  } catch (error) {
-    // A misconfigured integration is the likeliest first-run failure; report it
-    // as a plain message on stderr rather than a module-load stack trace.
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  }
-}
-
 const config = requireConfig();
 const client = new JamfPlatformClient(config);
-
-/**
- * Read the version from package.json rather than duplicating it here.
- *
- * README states package.json is the single source of the version, and a hardcoded
- * literal made that false — the two would drift at the first release, and the
- * version an MCP client sees is the one that matters. Resolved relative to this
- * module, so it works from dist/ regardless of the caller's cwd.
- */
-function packageVersion(): string {
-  try {
-    const raw = readFileSync(new URL('../package.json', import.meta.url), 'utf8');
-    return (JSON.parse(raw) as { version?: string }).version ?? '0.0.0';
-  } catch {
-    // Never fail startup over version metadata.
-    return '0.0.0';
-  }
-}
 
 const server = new McpServer({
   name: 'jamf-platform-mcp-server',
   version: packageVersion(),
 });
-
-/** Renders a result or an error as MCP tool content. */
-function asContent(value: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-function asError(error: unknown) {
-  if (error instanceof JamfPlatformApiError) {
-    return {
-      isError: true,
-      content: [
-        {
-          type: 'text' as const,
-          text: `${error.message}\nURL: ${error.url}\nResponse: ${error.responseBody.slice(0, 2000)}`,
-        },
-      ],
-    };
-  }
-  return {
-    isError: true,
-    content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }],
-  };
-}
 
 /**
  * Generic passthrough. While the gateway is in beta and its surface is still
@@ -121,12 +67,13 @@ server.registerTool(
       'Make an authenticated request against any Jamf Platform API Gateway endpoint. ' +
       'The gateway also fronts the Jamf Pro API (300+ endpoints) and Jamf Pro Classic API ' +
       '(500+), so this reaches essentially the whole Jamf surface. ' +
-      'Shapes: style "tenant" (default) builds /{version}/tenant/{tenantId}/{resource}; ' +
-      'style "flat" omits the tenant segment and has never returned 200; rawPath is used ' +
-      'verbatim after /api/{service}. ' +
+      'Shapes: style "tenant" (default) builds /{service}/{version}/{resource}; "flat" builds the ' +
+      'same path and exists for older callers; rawPath is used ' +
+      'verbatim after /{service}. The tenant is sent as an X-Tenant-Id header, never in the path; ' +
+      'Blueprints takes X-Environment-Id instead, chosen automatically. ' +
       'For Classic use service "proclassic" with style "classic", which builds ' +
-      '/tenant/{tenantId}/{resource} — no version segment, tenant filled in automatically, and ' +
-      'no /JSSResource/ prefix, which does not exist on the gateway. ' +
+      '/proclassic/{resource} — no version segment, and no /JSSResource/ prefix, which does ' +
+      'not exist on the gateway. ' +
       'The service segment may be more than one segment: Declaration Reporting is "ddm/report". ' +
       'Jamf Pro versions are per-resource (account-groups v1, enrollment v3, ' +
       'computers-inventory v4) — do not assume v1. ' +
@@ -141,17 +88,15 @@ server.registerTool(
         .string()
         .optional()
         .describe(
-          'Path after /api/{service}, used verbatim. Required for Classic, where it is ' +
-            '"/tenant/{tenantId}/{resource}" — e.g. "/tenant/{tenantId}/scripts". Nothing is ' +
-            'inserted, so the tenant segment must be included; a path without it answers 400.',
+          'Path after /{service}, used verbatim; nothing is inserted. Rarely needed: prefer ' +
+            'resource with a style.',
         ),
       style: z
         .enum(['tenant', 'classic', 'flat'])
         .optional()
         .describe(
           'Path layout; defaults to "tenant". Use "classic" for Jamf Pro Classic — it builds ' +
-            '/tenant/{tenantId}/{resource} with no version segment and fills the tenant in for ' +
-            'you, so prefer it over rawPath, which requires you to know the tenant id.',
+            '/{service}/{resource} with no version segment.',
         ),
       version: z.string().optional().describe('Version segment, defaults to "v1". Per-resource on Jamf Pro.'),
       query: z.record(z.string(), z.string()).optional().describe('Query string parameters'),
@@ -212,7 +157,8 @@ server.registerTool(
 async function classicList<T>(resource: string, keys: string[]): Promise<T[]> {
   const body = await client.request<Record<string, unknown>>({
     service: 'proclassic',
-    rawPath: `/tenant/${config.tenantId}/${resource}`,
+    style: 'classic',
+    resource: `${resource}`,
   });
   return extractClassicList<T>(body, keys).items;
 }
@@ -225,7 +171,8 @@ async function classicDetail<T>(
 ): Promise<T | undefined> {
   const body = await client.request<Record<string, unknown>>({
     service: 'proclassic',
-    rawPath: `/tenant/${config.tenantId}/${resource}/id/${id}`,
+    style: 'classic',
+    resource: `${resource}/id/${id}`,
   });
   return extractClassicDetail<T>(body, keys);
 }
@@ -751,7 +698,8 @@ server.registerTool(
     try {
       const body = await client.request<Record<string, unknown>>({
         service: 'proclassic',
-        rawPath: `/tenant/${config.tenantId}/computerinventorycollection`,
+        style: 'classic',
+    resource: `computerinventorycollection`,
       });
       const settings = extractClassicDetail<InventoryCollectionSettings>(body, [
         'computer_inventory_collection',
@@ -863,7 +811,8 @@ server.registerTool(
           const group = await client
             .request<Record<string, unknown>>({
               service: 'proclassic',
-              rawPath: `/tenant/${config.tenantId}/computergroups/id/${stub.id}`,
+              style: 'classic',
+    resource: `computergroups/id/${stub.id}`,
             })
             .then((b) =>
               extractClassicDetail<{ name?: string; is_smart?: boolean; criteria?: JamfCriterion[] }>(b, [
@@ -892,7 +841,8 @@ server.registerTool(
           const search = await client
             .request<Record<string, unknown>>({
               service: 'proclassic',
-              rawPath: `/tenant/${config.tenantId}/advancedcomputersearches/id/${stub.id}`,
+              style: 'classic',
+    resource: `advancedcomputersearches/id/${stub.id}`,
             })
             .then((b) =>
               extractClassicDetail<{
@@ -1603,7 +1553,7 @@ async function main() {
   // stderr only: stdout is the MCP transport and must carry protocol traffic alone.
   console.error(
     `jamf-platform-mcp-server ready (gateway ${config.gatewayBaseUrl}, ` +
-      `tenant ${config.tenantId}, ${config.readOnly ? 'read-only' : 'writes enabled'})`,
+      `${config.environmentId ? `environment ${config.environmentId}` : `tenant ${config.tenantId}`}, ${config.readOnly ? 'read-only' : 'writes enabled'})`,
   );
 }
 

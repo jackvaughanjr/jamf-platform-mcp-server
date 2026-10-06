@@ -9,10 +9,14 @@ loadDotenv({ quiet: true });
 const ConfigSchema = z.object({
   clientId: z.string().min(1, 'JAMF_CLIENT_ID is required'),
   clientSecret: z.string().min(1, 'JAMF_CLIENT_SECRET is required'),
-  tenantId: z.string().min(1, 'JAMF_TENANT_ID is required'),
+  tenantId: z.string().min(1).optional(),
+  environmentId: z.string().min(1).optional(),
   gatewayBaseUrl: z.string().url(),
   tokenUrl: z.string().url(),
   readOnly: z.boolean(),
+}).refine((c) => c.tenantId || c.environmentId, {
+  message: 'set JAMF_ENVIRONMENT_ID (a Platform environment integration) or JAMF_TENANT_ID (a legacy Tenant integration)',
+  path: ['environmentId'],
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -25,12 +29,16 @@ export type Config = z.infer<typeof ConfigSchema>;
  * worth surfacing all of it in a single message.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const gatewayBaseUrl = (env.JAMF_GATEWAY_BASE_URL ?? 'https://us.apigw.jamf.com').replace(/\/+$/, '');
+  const gatewayBaseUrl = (env.JAMF_GATEWAY_BASE_URL ?? 'https://us.api.jamfcloud.com').replace(/\/+$/, '');
 
   const parsed = ConfigSchema.safeParse({
     clientId: env.JAMF_CLIENT_ID ?? '',
     clientSecret: env.JAMF_CLIENT_SECRET ?? '',
-    tenantId: env.JAMF_TENANT_ID ?? '',
+    // One of the two. A Platform environment integration (the current kind) uses the
+    // environment id for everything; a legacy Tenant integration uses the tenant id
+    // and cannot reach environment-only services such as Blueprints.
+    tenantId: env.JAMF_TENANT_ID || undefined,
+    environmentId: env.JAMF_ENVIRONMENT_ID || undefined,
     gatewayBaseUrl,
     tokenUrl: env.JAMF_TOKEN_URL ?? `${gatewayBaseUrl}/auth/token`,
     readOnly: env.JAMF_READ_ONLY !== 'false',
