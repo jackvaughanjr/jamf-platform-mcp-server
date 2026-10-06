@@ -161,8 +161,12 @@ record than a UI click that has to be described by hand afterward.
 
 ### Neutral
 
-- JPM-0007's status line is amended to point here. Its tier table, and its rule that
-  writes never go through the passthrough, are unchanged and still govern.
+- JPM-0007 itself is left unedited, so the supersession is recorded here and in the
+  `decisions/README.md` index. CI's ADR guard has no counterpart to the local
+  `ADR_ALLOW_EDIT` override, so the superseded-by pointer that `decisions/README.md`
+  calls for cannot be added to a committed record by PR today. JPM-0007's tier table,
+  and its rule that writes never go through the passthrough, are unchanged and still
+  govern.
 
 ## References
 
