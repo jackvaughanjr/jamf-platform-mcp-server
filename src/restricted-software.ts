@@ -24,7 +24,7 @@ const ENVELOPE = 'restricted_software';
  * Shortest process name accepted when exact matching is off.
  *
  * With `match_exact_process_name` false, Jamf kills any process whose name
- * CONTAINS the string, and with `delete_executable` deletes it too. "Install macOS"
+ * CONTAINS the string. "Install macOS"
  * is the intended use; "app" or "s" would kill half the fleet's software. Six is a
  * judgement, not a Jamf limit: long enough to stop a stray fragment, short enough
  * for a real product name.
@@ -111,7 +111,9 @@ export const generalCreateSchema = z.strictObject({
     ),
   sendNotification: z.boolean().describe('Show the user a notification when the process is blocked'),
   killProcess: z.boolean().describe('Kill the process when it launches'),
-  deleteExecutable: z.boolean().describe('Delete the application that launched the process'),
+  deleteExecutable: z
+    .boolean()
+    .describe('Delete the application that launched the process. Jamf allows this only with matchExactProcessName true.'),
   displayMessage: z.string().optional().describe('Notification text; empty if omitted'),
 });
 
@@ -154,6 +156,17 @@ export function normalizeScope(input: ScopeInput): RestrictedSoftwareScope {
 }
 
 export function validateGeneral(general: RestrictedSoftwareGeneral): void {
+  // Jamf's UI refuses this combination: deleting every app whose process name merely
+  // contains a string is too broad. Enforced here because the API is not known to
+  // refuse it, and an API that accepts what the UI forbids is how the prior art's
+  // fleet-wide scope nearly shipped.
+  if (general.deleteExecutable && !general.matchExactProcessName) {
+    throw new Error(
+      'deleteExecutable requires matchExactProcessName true. Jamf only allows deleting the application ' +
+        'when the process name matches exactly; with substring matching it would delete every app whose ' +
+        'process name contains the string. Turn exact matching on, or deleteExecutable off.',
+    );
+  }
   if (!general.matchExactProcessName && general.processName.length < MIN_SUBSTRING_PROCESS_NAME) {
     throw new Error(
       `processName "${general.processName}" is shorter than ${MIN_SUBSTRING_PROCESS_NAME} characters ` +
@@ -417,11 +430,6 @@ function warningsFor(state: RestrictedSoftwareState): string[] {
   if (scope.allComputers) warnings.push('Scope is ALL computers in the tenant (minus any exclusions).');
   const inclusions = scope.computerIds.length + scope.computerGroupIds.length + scope.buildingIds.length + scope.departmentIds.length;
   if (!scope.allComputers && inclusions === 0) warnings.push('Scope has no targets, so this entry applies to no computer.');
-  if (general.deleteExecutable && !general.matchExactProcessName) {
-    warnings.push(
-      `deleteExecutable is on with substring matching: any app whose process name contains "${general.processName}" will be deleted.`,
-    );
-  }
   if (!general.killProcess) warnings.push('killProcess is off, so the process is not stopped — only reported or notified.');
   return warnings;
 }
@@ -526,7 +534,7 @@ export async function updateRestrictedSoftware(ctx: WriteContext, input: UpdateI
   // Only fields the caller passed. A key present with an undefined value is not a change.
   const patch = Object.fromEntries(Object.entries(input.general ?? {}).filter(([, v]) => v !== undefined));
   const general: RestrictedSoftwareGeneral = { ...live.general, ...patch };
-  if ('processName' in patch || 'matchExactProcessName' in patch) validateGeneral(general);
+  if ('processName' in patch || 'matchExactProcessName' in patch || 'deleteExecutable' in patch) validateGeneral(general);
 
   let scope: RestrictedSoftwareScope | undefined;
   if (input.scope) {
