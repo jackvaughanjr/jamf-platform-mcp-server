@@ -10,7 +10,22 @@ guarantee.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Every call failed after Jamf moved the gateway.** The client now targets
+  `https://us.api.jamfcloud.com` and builds `/{service}/{version}/{resource}` (Classic:
+  `/proclassic/{resource}`), with no `/api/` prefix and no tenant segment. The tenant
+  is sent as a scope header. With the new `JAMF_ENVIRONMENT_ID` (a Platform
+  environment integration) every request sends `X-Environment-Id`, which reaches
+  Blueprints too. `JAMF_TENANT_ID` (a legacy Tenant integration) sends `X-Tenant-Id`
+  and cannot reach Blueprints. One of the two is required. Five Classic call
+  sites that put the tenant into `rawPath` by hand now use `style: 'classic'`.
+  **Breaking** for anyone setting `JAMF_GATEWAY_BASE_URL` to the old host.
+
+### Changed
+
+- Config loading and result rendering moved to `src/mcp-common.ts`, so a second
+  server entry point can share them.
 
 ## [0.3.0] — 2026-08-10
 

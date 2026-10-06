@@ -7,8 +7,9 @@ const config: Config = {
   clientId: 'id',
   clientSecret: 'secret',
   tenantId: 'TENANT',
-  gatewayBaseUrl: 'https://us.apigw.jamf.com',
-  tokenUrl: 'https://us.apigw.jamf.com/auth/token',
+  environmentId: 'ENV',
+  gatewayBaseUrl: 'https://us.api.jamfcloud.com',
+  tokenUrl: 'https://us.api.jamfcloud.com/auth/token',
   readOnly: false,
 };
 
@@ -58,9 +59,10 @@ function paramsOf(nth: number): URLSearchParams {
 describe('buildUrl', () => {
   const client = new JamfPlatformClient(config);
 
-  it('builds the tenant style, which is the only shape observed to work', () => {
-    expect(client.buildUrl({ service: 'blueprints', resource: 'blueprints' })).toBe(
-      'https://us.apigw.jamf.com/api/blueprints/v1/tenant/TENANT/blueprints',
+  // Since the 2026 gateway move the tenant is a header, so no style puts it in the path.
+  it('builds the tenant style as /{service}/{version}/{resource}, with no tenant segment', () => {
+    expect(client.buildUrl({ service: 'devices', resource: 'devices' })).toBe(
+      'https://us.api.jamfcloud.com/devices/v1/devices',
     );
   });
 
@@ -69,49 +71,42 @@ describe('buildUrl', () => {
   it('uses the version given, not v1', () => {
     expect(
       client.buildUrl({ service: 'pro', resource: 'computers-inventory', version: 'v4' }),
-    ).toBe('https://us.apigw.jamf.com/api/pro/v4/tenant/TENANT/computers-inventory');
+    ).toBe('https://us.api.jamfcloud.com/pro/v4/computers-inventory');
   });
 
-  // Classic has no version segment, and expressing that through rawPath means the
-  // caller interpolating the tenant id by hand. A caller without it produces
-  // `/tenant//resource` and a 400 REQUEST_CONTEXT_NOT_PROVIDED that says nothing about
-  // an empty variable — which is exactly how this was found.
-  it('builds classic style with the tenant filled in and no version segment', () => {
+  it('builds classic style with no version segment', () => {
     expect(
       client.buildUrl({ service: 'proclassic', resource: 'computergroups/id/41', style: 'classic' }),
-    ).toBe('https://us.apigw.jamf.com/api/proclassic/tenant/TENANT/computergroups/id/41');
+    ).toBe('https://us.api.jamfcloud.com/proclassic/computergroups/id/41');
   });
 
   it('ignores an explicit version on classic style, which has no version segment', () => {
     expect(
       client.buildUrl({ service: 'proclassic', resource: 'scripts', style: 'classic', version: 'v3' }),
-    ).toBe('https://us.apigw.jamf.com/api/proclassic/tenant/TENANT/scripts');
+    ).toBe('https://us.api.jamfcloud.com/proclassic/scripts');
   });
 
-  it('omits the tenant segment for flat style', () => {
+  it('builds flat style identically to tenant style, now that the tenant is a header', () => {
     expect(client.buildUrl({ service: 'pro', resource: 'device-declarations', style: 'flat' })).toBe(
-      'https://us.apigw.jamf.com/api/pro/v1/device-declarations',
+      client.buildUrl({ service: 'pro', resource: 'device-declarations' }),
     );
   });
 
-  // The example is Classic's real shape on purpose. An earlier revision used
-  // `/JSSResource/computers`, which is mechanically fine for a verbatim-passthrough
-  // assertion but teaches a path that does not exist on the gateway.
-  it('uses rawPath verbatim, with no version or tenant inserted', () => {
-    expect(client.buildUrl({ service: 'proclassic', rawPath: '/tenant/TENANT/scripts' })).toBe(
-      'https://us.apigw.jamf.com/api/proclassic/tenant/TENANT/scripts',
+  it('uses rawPath verbatim, with nothing inserted', () => {
+    expect(client.buildUrl({ service: 'proclassic', rawPath: '/scripts' })).toBe(
+      'https://us.api.jamfcloud.com/proclassic/scripts',
     );
   });
 
   it('accepts a rawPath without a leading slash', () => {
-    expect(client.buildUrl({ service: 'proclassic', rawPath: 'tenant/TENANT/scripts' })).toBe(
-      'https://us.apigw.jamf.com/api/proclassic/tenant/TENANT/scripts',
+    expect(client.buildUrl({ service: 'proclassic', rawPath: 'scripts' })).toBe(
+      'https://us.api.jamfcloud.com/proclassic/scripts',
     );
   });
 
   it('tolerates a leading slash on resource', () => {
     expect(client.buildUrl({ service: 'devices', resource: '/devices' })).toBe(
-      'https://us.apigw.jamf.com/api/devices/v1/tenant/TENANT/devices',
+      'https://us.api.jamfcloud.com/devices/v1/devices',
     );
   });
 
@@ -122,11 +117,43 @@ describe('buildUrl', () => {
         resource: 'devices',
         query: { page: 0, 'page-size': 5, section: undefined },
       }),
-    ).toBe('https://us.apigw.jamf.com/api/devices/v1/tenant/TENANT/devices?page=0&page-size=5');
+    ).toBe('https://us.api.jamfcloud.com/devices/v1/devices?page=0&page-size=5');
   });
 
   it('throws when neither resource nor rawPath is given', () => {
     expect(() => client.buildUrl({ service: 'devices' })).toThrow(/resource.*rawPath/);
+  });
+});
+
+describe('scope headers', () => {
+  const tenantOnly = new JamfPlatformClient({ ...config, environmentId: undefined });
+  const withEnvironment = new JamfPlatformClient(config);
+
+  // A Platform environment integration reaches every route with X-Environment-Id
+  // (confirmed 2026-10-06), so it is used for everything once configured.
+  it('sends X-Environment-Id for every service when an environment id is configured', () => {
+    expect(withEnvironment.scopeHeaders({ service: 'proclassic' })).toEqual({ 'X-Environment-Id': 'ENV' });
+    expect(withEnvironment.scopeHeaders({ service: 'blueprints' })).toEqual({ 'X-Environment-Id': 'ENV' });
+  });
+
+  it('sends X-Tenant-Id when only a tenant id is configured', () => {
+    expect(tenantOnly.scopeHeaders({ service: 'proclassic' })).toEqual({ 'X-Tenant-Id': 'TENANT' });
+  });
+
+  // Blueprints is environment-only: the tenant id there answers 403, and as an
+  // environment id 404 ENVIRONMENT_NOT_FOUND. Neither says "wrong integration".
+  it('throws a pointed error for blueprints on a tenant-only configuration', () => {
+    expect(() => tenantOnly.scopeHeaders({ service: 'blueprints' })).toThrow(/JAMF_ENVIRONMENT_ID/);
+  });
+
+  it('honours an explicit scope over the configured default', () => {
+    expect(withEnvironment.scopeHeaders({ service: 'devices', scope: 'tenant' })).toEqual({ 'X-Tenant-Id': 'TENANT' });
+  });
+
+  it('puts the scope header on the wire', async () => {
+    stubTokenThen(res({ ok: true }));
+    await withEnvironment.request({ service: 'devices', resource: 'devices' });
+    expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({ 'X-Environment-Id': 'ENV' });
   });
 });
 
@@ -223,6 +250,7 @@ describe('read-only enforcement', () => {
   });
 });
 
+
 describe('error handling', () => {
   it('surfaces status, url and body on a failed request', async () => {
     const client = new JamfPlatformClient(config);
@@ -236,7 +264,7 @@ describe('error handling', () => {
 
     expect(error).toBeInstanceOf(JamfPlatformApiError);
     expect(error.status).toBe(403);
-    expect(error.url).toContain('/api/blueprints/v1/tenant/TENANT/components');
+    expect(error.url).toContain('/blueprints/v1/components');
     expect(error.responseBody).toContain('BAD_PERMISSIONS');
   });
 

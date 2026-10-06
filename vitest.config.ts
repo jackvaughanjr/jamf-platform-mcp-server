@@ -11,7 +11,7 @@ export default defineConfig({
       JAMF_CLIENT_ID: 'test-client-id',
       JAMF_CLIENT_SECRET: 'test-client-secret',
       JAMF_TENANT_ID: 'test-tenant-id',
-      JAMF_GATEWAY_BASE_URL: 'https://us.apigw.jamf.com',
+      JAMF_GATEWAY_BASE_URL: 'https://us.api.jamfcloud.com',
       JAMF_READ_ONLY: 'false',
     },
   },

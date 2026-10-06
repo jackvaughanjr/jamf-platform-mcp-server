@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-297%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-304%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -50,7 +50,8 @@ Related work worth knowing about:
 
 ```
 src/
-  index.ts              MCP server: tool registration, stdio transport
+  index.ts              read server: tool registration, stdio transport
+  mcp-common.ts         config loading and result rendering, shared by server entry points
   platform-client.ts    every gateway concern — auth, token cache, URL shapes, paging
   config.ts             environment validation (zod)
   fleet.ts              pure fleet aggregation — no client, no clock, no I/O
@@ -82,12 +83,12 @@ Working and confirmed against a live tenant:
 
 | segment | style | resource | notes |
 |---|---|---|---|
-| `blueprints` | tenant | `blueprints` | `totalCount`-only envelope |
+| `blueprints` | tenant | `blueprints` | `totalCount`-only envelope; needs a Platform environment integration |
 | `blueprints` | tenant | `blueprint-components` | records keyed `identifier`, not `id` |
 | `devices` | tenant | `devices` | full paging envelope; spans macOS **and** iOS |
 | `device-groups` | tenant | `device-groups` | full envelope; exposes `memberCount` |
 | `pro` | tenant | 300+ resources | the Jamf Pro API in full |
-| `proclassic` | classic | `/tenant/{t}/{resource}` | Jamf Pro Classic — no version segment |
+| `proclassic` | classic | `{resource}` | Jamf Pro Classic — no version segment |
 | `ddm/report` | tenant | `devices/{id}/channels` | Declaration Reporting |
 | `ddm/report` | tenant | `devices/{id}/declarations` | per-device declaration state; `filter` required |
 | `ddm/report` | tenant | `declarations/{id}/devices` | the same state per declaration, across devices |
@@ -132,8 +133,9 @@ is sufficient and strongly preferred. The client secret is shown exactly once.
 |---|---|---|
 | `JAMF_CLIENT_ID` | yes | from the integration |
 | `JAMF_CLIENT_SECRET` | yes | shown once at creation |
-| `JAMF_TENANT_ID` | yes | appears in every gateway path |
-| `JAMF_GATEWAY_BASE_URL` | no | defaults to `https://us.apigw.jamf.com` |
+| `JAMF_ENVIRONMENT_ID` | one of these two | Platform environment integration; sent as `X-Environment-Id` on every request |
+| `JAMF_TENANT_ID` | one of these two | legacy Tenant integration; sent as `X-Tenant-Id`; cannot reach Blueprints |
+| `JAMF_GATEWAY_BASE_URL` | no | defaults to `https://us.api.jamfcloud.com` |
 | `JAMF_TOKEN_URL` | no | defaults to `<base>/auth/token` |
 | `JAMF_READ_ONLY` | no | defaults to `true`; a backstop, **not** the guarantee |
 
@@ -204,7 +206,7 @@ against it would be a false promise.
 ## Testing
 
 ```bash
-npm test              # vitest, 297 tests
+npm test              # vitest, 304 tests
 npm run typecheck
 DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix, no credentials needed
 ```
