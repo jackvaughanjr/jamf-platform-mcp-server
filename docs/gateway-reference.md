@@ -185,6 +185,20 @@ form even for a collection, derived from the XML root rather than from pluralisi
 path segment `restrictedsoftware`. It is the only one of these pages that declares an
 explicit `xml.name`. Any code computing an envelope key from the URL segment misses it.
 
+**Restricted Software writes, read from the operation pages 2026-10-06, not yet
+called.** Create is `POST /restrictedsoftware/id/0` (the id is a placeholder; Jamf
+assigns one) and update is `PUT /restrictedsoftware/id/{id}`, both under `proclassic`
+with no version. Both pages document only a `201 Created` response and **publish no
+request body at all**, neither a schema nor a content type. The write server sends
+XML shaped like the GET schema (`<restricted_software><general>…</general><scope>…`),
+because Classic has always taken XML on writes and the GET advertises
+`application/xml`. Settle this with the first live create. The field is `name`, not
+`display_name`.
+
+Scopes are per operation and spelled `{resource}:{verb}`: `restricted-software:read`,
+`:create`, `:update`, `:delete`. That spelling is unlike the `read:pro:blueprints`
+form noted elsewhere. Do not derive one from the other.
+
 **`patch_policies` is the one key not to trust.** Its page publishes no `xml.name` and
 the key is inferred from the component schema name. Shipping Classic has a long-standing
 quirk of returning `"patch policies"` *with a space* here. Prefer the Jamf Pro API's

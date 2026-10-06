@@ -88,8 +88,13 @@ Only JSON-RPC may go to stdout. Logs go to stderr. `dotenv` is loaded with
    ([JPM-0003](decisions/JPM-0003-passthrough-plus-selective-typed-tools.md)).
 4. `platformRequest` is **GET-only** and exposes no `method` or `body`
    ([JPM-0007](decisions/JPM-0007-write-path-posture.md)). Any write is a named typed
-   tool with a narrow schema, never the passthrough. Destructive scopes are never
-   granted to this server at all, so a write tool needs a superseding ADR first.
+   tool with a narrow schema, never the passthrough. Write tools live **only** in
+   `src/write-server.ts`, which runs under its own credential
+   ([JPM-0008](decisions/JPM-0008-reversible-writes-as-a-separate-server.md)), never
+   in `src/index.ts`. Adding one means a new ADR and updating the enumerated list in
+   `src/conventions.test.ts`. Destructive scopes, delete included, are never granted.
+   Copy the shape of `restricted-software.ts`: no defaults, dry run by default,
+   read-modify-write on update, verify by reading back, and return a rollback.
 5. `requestAll` infers its paging family from the service segment. Classic throws
    rather than returning `[]`, and `ddm/report` uses `size` rather than `page-size`.
    A new segment that pages differently belongs in `PAGING_FAMILY_BY_SERVICE`.

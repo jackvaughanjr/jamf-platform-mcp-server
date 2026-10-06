@@ -118,6 +118,37 @@ describe('platformRequest cannot express a write', () => {
   });
 });
 
+// JPM-0008: writes live in a separate server, and the set of possible mutations is
+// whatever this test enumerates. Asserted on source for the same reason as above.
+describe('the read/write server split', () => {
+  const toolNames = (file: string) =>
+    [...read(file).matchAll(/registerTool\(\s*'([^']+)'/g)].map((m) => m[1]).sort();
+
+  it('registers no write tool on the read server', () => {
+    const source = read('src/index.ts');
+    expect(source).not.toContain('restricted-software.js');
+    for (const name of toolNames('src/index.ts')) {
+      expect(name, `read server registers ${name}`).not.toMatch(/^(create|update|delete|execute|send)/);
+    }
+  });
+
+  it('registers exactly the reviewed write tools on the write server, and no passthrough', () => {
+    expect(
+      toolNames('src/write-server.ts'),
+      'Adding a write tool is a JPM-0008 decision: update this list in the same change as the ADR.',
+    ).toEqual(['createRestrictedSoftware', 'updateRestrictedSoftware']);
+  });
+
+  // Delete is not granted (JPM-0008 part 5); the code should not be able to ask for it either.
+  it('never issues DELETE or PATCH from the write path', () => {
+    for (const file of ['src/write-server.ts', 'src/restricted-software.ts']) {
+      for (const verb of ['DELETE', 'PATCH']) {
+        expect(read(file), `${file} mentions ${verb}`).not.toContain(`'${verb}'`);
+      }
+    }
+  });
+});
+
 describe('data-handling invariants', () => {
   it('keeps captured responses and the real .env.op out of version control', () => {
     const ignore = read('.gitignore');

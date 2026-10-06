@@ -250,6 +250,32 @@ describe('read-only enforcement', () => {
   });
 });
 
+describe('request bodies', () => {
+  it('sends an xml body verbatim as application/xml', async () => {
+    const client = new JamfPlatformClient(config);
+    stubTokenThen(res('', { status: 201 }));
+    await client.request({
+      service: 'proclassic',
+      style: 'classic',
+      resource: 'restrictedsoftware/id/0',
+      method: 'POST',
+      body: '<restricted_software/>',
+      bodyFormat: 'xml',
+    });
+    const init = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(init.body).toBe('<restricted_software/>');
+    expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/xml');
+  });
+
+  // Serialising an object to JSON and labelling it XML would reach Jamf as garbage.
+  it('refuses an xml bodyFormat with a non-string body, before any network call', async () => {
+    const client = new JamfPlatformClient(config);
+    await expect(
+      client.request({ service: 'proclassic', resource: 'x', method: 'POST', body: { a: 1 }, bodyFormat: 'xml' }),
+    ).rejects.toThrow(/string body/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
 
 describe('error handling', () => {
   it('surfaces status, url and body on a failed request', async () => {

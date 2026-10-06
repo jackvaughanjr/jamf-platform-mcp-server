@@ -55,3 +55,7 @@ The distinction matters because ADRs are immutable and findings are not.
 - [JPM-0007](JPM-0007-write-path-posture.md): Provision no read-write integration;
   never grant this server a scope that can erase or unmanage a device; if reversible
   writes are ever enabled, they go through typed tools and never the passthrough.
+  Part 1 superseded by JPM-0008.
+- [JPM-0008](JPM-0008-reversible-writes-as-a-separate-server.md): Reversible writes
+  ship as a second server from this repo, under its own credential and registered per
+  project, starting with Restricted Software create and update. Delete is not granted.

@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "jamf-platform-mcp-server": "dist/index.js"
+    "jamf-platform-mcp-server": "dist/index.js",
+    "jamf-platform-mcp-write": "dist/write-server.js"
   },
   "files": [
     "dist",
@@ -17,7 +18,7 @@
   },
   "scripts": {
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true",
-    "build": "tsc && chmod +x dist/index.js",
+    "build": "tsc && chmod +x dist/index.js dist/write-server.js",
     "dev": "tsx src/index.ts",
     "serve": "node dist/index.js",
     "typecheck": "tsc --noEmit",
@@ -25,7 +26,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "call": "node scripts/call-tool.mjs"
+    "call": "node scripts/call-tool.mjs",
+    "serve:write": "node dist/write-server.js"
   },
   "keywords": [
     "mcp",
