@@ -10,6 +10,21 @@ guarantee.
 
 ## [Unreleased]
 
+### Added
+
+- **A write server**, `dist/write-server.js` (bin `jamf-platform-mcp-write`), with
+  `createRestrictedSoftware` and `updateRestrictedSoftware` and nothing else
+  ([JPM-0008](decisions/JPM-0008-reversible-writes-as-a-separate-server.md)). It runs
+  under its own write integration, is registered per project, and cannot delete. Both tools default to a dry run that returns the exact XML and a
+  field-by-field diff. A real write is read back and verified, and returns rollback
+  arguments. Scope is required on create with no default; an update changes only the
+  fields passed and sends no scope unless a full replacement is given.
+- `RequestOptions.bodyFormat: 'xml'`, which sends a string body verbatim as
+  `application/xml` for Classic writes.
+- Convention tests pinning the split: the read server registers no write tool, the
+  write server registers exactly the two reviewed ones, and the write path never names
+  `DELETE` or `PATCH`.
+
 ### Fixed
 
 - **Every call failed after Jamf moved the gateway.** The client now targets
@@ -24,8 +39,16 @@ guarantee.
 
 ### Changed
 
+- [JPM-0007](decisions/JPM-0007-write-path-posture.md) part 1 ("no read-write
+  integration is planned") is superseded by JPM-0008. Its tiers and its rule that the
+  passthrough never writes are unchanged.
 - Config loading and result rendering moved to `src/mcp-common.ts`, so a second
   server entry point can share them.
+
+### Unverified
+
+- The Classic create and update pages publish no request body. XML is sent; the first
+  live create is the check, and should use an empty scope.
 
 ## [0.3.0] — 2026-08-10
 

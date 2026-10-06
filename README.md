@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-304%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-336%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -51,7 +51,9 @@ Related work worth knowing about:
 ```
 src/
   index.ts              read server: tool registration, stdio transport
-  mcp-common.ts         config loading and result rendering, shared by server entry points
+  write-server.ts       write server (JPM-0008): restricted-software create/update only
+  restricted-software.ts  write logic: scope rules, XML, diff, read-back, rollback
+  mcp-common.ts         config loading and result rendering shared by both servers
   platform-client.ts    every gateway concern — auth, token cache, URL shapes, paging
   config.ts             environment validation (zod)
   fleet.ts              pure fleet aggregation — no client, no clock, no I/O
@@ -156,9 +158,47 @@ grants write scopes is making that decision, and owns what follows from it.
 `platformRequest` offers no `method` or `body` parameter, so the passthrough cannot
 express a mutation at all, not even with write scopes granted. A passthrough write
 is unreviewable in a way a typed tool's write is not, since method, path and body
-would all be caller-composed with no schema constraining any of them. Any future
+would all be caller-composed with no schema constraining any of them. Every
 write is a named tool with a narrow schema, so the set of possible mutations stays
-enumerable by reading `src/index.ts`.
+enumerable by reading one file.
+
+### The write server
+
+Reversible writes ship as a **second server** built from this repo,
+`dist/write-server.js`
+([JPM-0008](decisions/JPM-0008-reversible-writes-as-a-separate-server.md)). It
+registers only `createRestrictedSoftware` and `updateRestrictedSoftware`: no
+passthrough, no read tools, and no delete. The read server registers no write
+tools in any configuration.
+
+- **Its own integration.** A Platform environment integration named for its role
+  (it is expected to grow), granted exactly what the write tools need. Today that is
+  `restricted-software:read`, `:create` and `:update`, and never `:delete`. Each new
+  write tool adds its permissions here, alongside its ADR. Keep it in its own
+  1Password item, separate from the read integration, so the read server's credential
+  can never write.
+- **Its own env file**, with `JAMF_READ_ONLY=false`. With the flag on, the server
+  still starts and dry runs still work, but every real write refuses.
+- **Registered per project, not globally.** Put it in the `.mcp.json` of the
+  repository that holds the Jamf change log, so its tools appear only there:
+
+  ```json
+  {
+    "mcpServers": {
+      "jamf-platform-write": {
+        "command": "op",
+        "args": ["run", "--env-file=/absolute/path/to/.env.op.write", "--",
+                 "node", "/absolute/path/to/dist/write-server.js"]
+      }
+    }
+  }
+  ```
+
+Both tools default to `dryRun: true`, which returns the exact XML and a
+field-by-field diff and writes nothing. A real write reads the entry back and reports
+any field Jamf stored differently, and returns rollback arguments. Scope is required
+on create and never defaults to all computers. An update changes only the fields
+passed and leaves scope alone unless a complete replacement is given.
 
 Credentials are injected at runtime so the secret never lands on disk:
 
@@ -171,6 +211,9 @@ op run --env-file=.env.op -- npm run dev
 ```bash
 claude mcp add jamf-platform -- node /absolute/path/to/dist/index.js
 ```
+
+Register the read server globally if you like; it cannot write. The write server is
+registered per project (see above).
 
 ## Conventions
 
@@ -206,7 +249,7 @@ against it would be a false promise.
 ## Testing
 
 ```bash
-npm test              # vitest, 304 tests
+npm test              # vitest, 336 tests
 npm run typecheck
 DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix, no credentials needed
 ```

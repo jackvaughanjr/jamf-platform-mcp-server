@@ -85,6 +85,15 @@ export interface RequestOptions {
    */
   query?: Record<string, string | number | boolean | undefined>;
   body?: unknown;
+  /**
+   * How `body` is encoded. Defaults to `json`, which serialises it.
+   *
+   * `xml` sends a string body verbatim as `application/xml`, for Jamf Pro Classic
+   * writes. Classic's create and update operation pages publish no request body
+   * at all, and Classic has always taken XML on the way in, while answering in
+   * JSON when asked to on the way out.
+   */
+  bodyFormat?: 'json' | 'xml';
 }
 
 /**
@@ -402,20 +411,26 @@ export class JamfPlatformClient {
       );
     }
 
+    // Before the token request: a malformed request should not cost a round trip.
+    if (options.bodyFormat === 'xml' && typeof options.body !== 'string') {
+      throw new Error('bodyFormat "xml" requires a string body; it is sent verbatim, never serialised.');
+    }
+
     const url = this.buildUrl(options);
     const scopeHeaders = this.scopeHeaders(options);
     const label = options.rawPath ?? options.resource ?? '(unknown)';
     const token = await this.getAccessToken();
 
+    const xml = options.bodyFormat === 'xml';
     const response = await fetch(url, {
       method,
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/json',
         ...scopeHeaders,
-        ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(options.body === undefined ? {} : { 'Content-Type': xml ? 'application/xml' : 'application/json' }),
       },
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: options.body === undefined ? undefined : xml ? (options.body as string) : JSON.stringify(options.body),
     });
 
     const text = await response.text();
