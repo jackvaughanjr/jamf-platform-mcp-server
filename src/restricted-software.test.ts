@@ -72,7 +72,7 @@ const general: RestrictedSoftwareGeneral = {
   matchExactProcessName: false,
   sendNotification: true,
   killProcess: true,
-  deleteExecutable: true,
+  deleteExecutable: false,
   displayMessage: 'Upgrades are managed by IT.',
 };
 
@@ -87,7 +87,7 @@ function liveBody(overrides: { general?: Record<string, unknown>; scope?: Record
         match_exact_process_name: false,
         send_notification: true,
         kill_process: true,
-        delete_executable: true,
+        delete_executable: false,
         display_message: 'Upgrades are managed by IT.',
         site: { id: -1, name: 'None' },
         ...overrides.general,
@@ -157,6 +157,19 @@ describe('input rules', () => {
 
   it('rejects allComputers combined with inclusion targets as ambiguous', () => {
     expect(() => normalizeScope({ allComputers: true, computerGroupIds: [12] })).toThrow(/ambiguous/);
+  });
+
+  // Jamf's UI enforces this; the tool must not let the API path around it.
+  it('refuses deleteExecutable without exact matching, and allows it with', () => {
+    expect(() => validateGeneral({ ...general, deleteExecutable: true })).toThrow(/requires matchExactProcessName/);
+    expect(() => validateGeneral({ ...general, deleteExecutable: true, matchExactProcessName: true })).not.toThrow();
+  });
+
+  it('checks that rule on update when only deleteExecutable changes', async () => {
+    stub(res(liveBody()));
+    await expect(updateRestrictedSoftware(ctx(), { id: 7, general: { deleteExecutable: true } })).rejects.toThrow(
+      /requires matchExactProcessName/,
+    );
   });
 
   it('refuses a short process name under substring matching', () => {

@@ -19,6 +19,8 @@ guarantee.
   field-by-field diff. A real write is read back and verified, and returns rollback
   arguments. Scope is required on create with no default; an update changes only the
   fields passed and sends no scope unless a full replacement is given.
+  `deleteExecutable` is refused unless `matchExactProcessName` is true, matching a rule
+  Jamf's UI enforces.
 - `RequestOptions.bodyFormat: 'xml'`, which sends a string body verbatim as
   `application/xml` for Classic writes.
 - Convention tests pinning the split: the read server registers no write tool, the

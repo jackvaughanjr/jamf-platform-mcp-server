@@ -98,8 +98,11 @@ direct answer to a defect above:
   `updateRestrictedSoftware` arguments that restore the prior values. For a create, it
   is an update to an empty scope, which disables the entry without deleting it.
 - **A non-exact process name has a minimum length.** With exact matching off, Jamf kills
-  any process whose name contains the string, and can delete its executable. A short
-  substring is a fleet-wide kill switch, so it is refused.
+  any process whose name contains the string. A short substring is a fleet-wide kill
+  switch, so it is refused.
+- **Deleting the application requires exact matching.** Jamf's UI enforces this, and
+  the API is not known to, so the tool enforces it too rather than let the API path get
+  around a rule the UI holds.
 
 **5. Deletion stays in the Jamf UI.** A Restricted Software delete is not in
 JPM-0007's tier 2 list, but nothing needs it: an entry with an empty scope does
