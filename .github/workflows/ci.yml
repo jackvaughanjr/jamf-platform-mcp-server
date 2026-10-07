@@ -58,18 +58,13 @@ jobs:
 
       # Committed ADRs are immutable. Compares the PR head against main rather than
       # the index, since a pre-commit hook cannot police a branch pushed from a
-      # clone that never installed the hooks.
+      # clone that never installed the hooks. The one edit allowed is the one
+      # decisions/README.md sanctions: a Status-only change pointing at an existing
+      # superseding record. The local hook's ADR_ALLOW_EDIT override has no CI
+      # counterpart, so without this the required pointer could never merge.
       - name: ADRs unchanged
         if: github.event_name == 'pull_request'
-        run: |
-          changed=$(git diff --name-status "origin/${{ github.base_ref }}"...HEAD \
-            --diff-filter=MDR -- 'decisions/[A-Z]*-[0-9][0-9][0-9][0-9]-*.md' || true)
-          if [ -n "$changed" ]; then
-            echo "::error::A committed ADR was modified, deleted or renamed:"
-            echo "$changed"
-            echo "Supersede it with a new record instead. See decisions/README.md."
-            exit 1
-          fi
+        run: node dist/adr-guard.js "origin/${{ github.base_ref }}"
 
       # The server must be startable and speak MCP. Credentials are fixtures; no
       # tenant is contacted.
