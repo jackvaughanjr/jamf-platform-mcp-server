@@ -1,6 +1,7 @@
 # JPM-0007: The write path is a credential decision, and this server never gets erase
 
-- **Status:** Accepted
+- **Status:** Accepted; part 1 superseded by
+  [JPM-0008](JPM-0008-reversible-writes-as-a-separate-server.md). Parts 2 and 3 stand.
 - **Date:** 2026-08-05
 
 ## Context
