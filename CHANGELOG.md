@@ -10,6 +10,21 @@ guarantee.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.0] — 2026-10-07
+
+Two things: the server works again after Jamf moved the Platform API, and the project
+makes its first writes, through a separate server rather than the existing one.
+
+**Breaking.** Jamf moved the gateway: the host is now `{region}.api.jamfcloud.com`,
+paths no longer carry `/api/` or the tenant, and the tenant or environment travels in a
+header. Anyone setting `JAMF_GATEWAY_BASE_URL` to the old `apigw.jamf.com` host must
+change or remove it, and integrations created before the move need recreating at the
+**Platform environment** level. `JAMF_TENANT_ID` is no longer required when
+`JAMF_ENVIRONMENT_ID` is set. The gateway remains in public beta and minor versions may
+carry breaking changes, as stated above.
+
 ### Added
 
 - **A write server**, `dist/write-server.js` (bin `jamf-platform-mcp-write`), with
