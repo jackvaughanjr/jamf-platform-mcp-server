@@ -29,6 +29,12 @@ guarantee.
 
 ### Fixed
 
+- **CI could never merge a superseded-by pointer.** Its ADR guard blocked every edit to
+  a committed record, with no counterpart to the local `ADR_ALLOW_EDIT` override, so
+  the pointer `decisions/README.md` requires was unmergeable. `src/adr-guard.ts` now
+  allows exactly that edit, a Status-only change that says superseded and links an
+  existing successor, and still blocks everything else. JPM-0007 now carries its
+  pointer to JPM-0008.
 - **Every call failed after Jamf moved the gateway.** The client now targets
   `https://us.api.jamfcloud.com` and builds `/{service}/{version}/{resource}` (Classic:
   `/proclassic/{resource}`), with no `/api/` prefix and no tenant segment. The tenant

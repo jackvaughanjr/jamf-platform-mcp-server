@@ -32,7 +32,8 @@
 
 - [ ] New ADR under `decisions/`, superseding rather than editing
 - [ ] Superseded record's `Status` updated to point at the successor
-      (`ADR_ALLOW_EDIT=1 git commit`)
+      (`ADR_ALLOW_EDIT=1 git commit` locally; CI allows a Status-only change that
+      links an existing successor, and nothing else)
 - [ ] `decisions/README.md` index updated
 
 # Anything you are unsure about

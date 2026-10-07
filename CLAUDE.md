@@ -30,7 +30,9 @@ If something currently ignored genuinely belongs in version control, change
 `scripts/check-adr-immutability.sh` blocks modifying, deleting, or renaming an ADR
 that is already committed. Corrections go by a new superseding record. Before a
 record has external readers, an in-place edit is available via
-`ADR_ALLOW_EDIT=1 git commit`. See [`decisions/README.md`](decisions/README.md).
+`ADR_ALLOW_EDIT=1 git commit`. In CI, `src/adr-guard.ts` blocks the same changes
+but allows a Status-only superseded-by pointer to an existing record, the one edit
+`decisions/README.md` sanctions. See [`decisions/README.md`](decisions/README.md).
 
 ## Credentials
 

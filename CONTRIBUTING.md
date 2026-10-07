@@ -79,9 +79,15 @@ Correct a decision by **superseding** it with a new record, never by editing the
 one. A wrong ADR left standing is bad; a wrong ADR silently rewritten is worse,
 because the reasoning that produced it disappears.
 
-Enforced by `scripts/check-adr-immutability.sh` locally and a base-branch diff in CI.
-Two sanctioned exceptions, both via `ADR_ALLOW_EDIT=1 git commit`: adding a
-superseded-by pointer, and editing a record that has no external readers yet.
+Enforced by `scripts/check-adr-immutability.sh` locally and by `src/adr-guard.ts` in
+CI, which diffs the PR against the base branch. Two sanctioned exceptions:
+
+- **A superseded-by pointer.** Locally via `ADR_ALLOW_EDIT=1 git commit`. CI allows it
+  mechanically: the change must touch only the `Status:` bullet, say the record is
+  superseded, and link a successor record that exists.
+- **Editing a record that has no external readers yet.** Locally via
+  `ADR_ALLOW_EDIT=1`. CI cannot judge readers, so in CI this means records not yet on
+  the base branch: edit freely within the PR that adds them.
 
 ## Enforced: conventions checked by tests
 

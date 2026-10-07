@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-338%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-345%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -65,6 +65,7 @@ src/
   automations.ts        script/policy auditing, criteria projection, inventory cost
   declaration-scope.ts  pure DDM rollup: one declaration across many devices
   references.ts         pure reference analysis + smart-group dependency graph
+  adr-guard.ts          CI's ADR immutability check; allows only a superseded-by pointer
   *.test.ts             unit tests (vitest)
 decisions/              architectural decision records, JPM- prefix, immutable
 docs/
@@ -270,7 +271,7 @@ against it would be a false promise.
 ## Testing
 
 ```bash
-npm test              # vitest, 338 tests
+npm test              # vitest, 345 tests
 npm run typecheck
 DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix (pre-move gateway shapes; see the script header)
 ```
@@ -320,7 +321,7 @@ by a pre-commit hook and by CI:
 |---|---|
 | No live identifiers in tracked files — including test fixtures | `scripts/check-no-identifiers.sh` |
 | No captured API responses committed; never `git add -f` | `.githooks/pre-commit` |
-| Committed ADRs are immutable — supersede, never edit | `scripts/check-adr-immutability.sh` + CI base-branch diff |
+| Committed ADRs are immutable — supersede, never edit (a Status-only superseded-by pointer is the one allowed edit) | `scripts/check-adr-immutability.sh` + `src/adr-guard.ts` in CI |
 
 `src/conventions.test.ts` additionally asserts the conventions that drifted during
 early development: the test-count badge matches reality, ADR numbering is sequential

@@ -30,7 +30,9 @@ The distinction matters because ADRs are immutable and findings are not.
   else has reviewed it, nothing downstream depends on it — an in-place edit is
   acceptable via `ADR_ALLOW_EDIT=1 git commit`.
 - A superseded record is edited only to mark its status and point at the
-  successor.
+  successor. CI permits exactly that edit: `src/adr-guard.ts` allows a change to a
+  committed record only when it touches nothing but the `Status:` bullet, says
+  superseded, and links a successor that exists.
 
 ## Index
 
