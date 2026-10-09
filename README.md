@@ -72,6 +72,7 @@ docs/
   capabilities.md       what the server can answer, by question rather than endpoint
   gateway-reference.md  observed gateway behaviour: paths, status semantics, paging
   endpoint-inventory.md documented endpoint surface, compiled from Jamf's llms.txt
+  BACKLOG.md            open work: why each item exists and what done looks like
 fixtures/
   shapes/               type-only response schemas — committed
   raw/                  captured responses — GITIGNORED, live fleet data
@@ -130,7 +131,7 @@ count stays deliberately small
 Write server: `createRestrictedSoftware` and `updateRestrictedSoftware`, nothing else.
 Its read path is confirmed live against real entries; **a live write has not yet been
 made through it**, so the XML request body, which Jamf's pages do not publish, is
-still unverified.
+still unverified. Open work is tracked in [docs/BACKLOG.md](docs/BACKLOG.md).
 
 Pagination is confirmed live: a real page-1 request returned different records with
 `hasPrevious: true` and `totalPages: 13`, so `page` is 0-based as assumed and query

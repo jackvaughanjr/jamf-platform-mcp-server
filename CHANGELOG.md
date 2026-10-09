@@ -10,7 +10,10 @@ guarantee.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `docs/BACKLOG.md`: open work, each entry with why it exists and what done looks
+  like, linked from CLAUDE.md and the README.
 
 ## [0.4.0] — 2026-10-07
 
