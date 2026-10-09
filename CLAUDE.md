@@ -1,12 +1,15 @@
 # Working in this repo
 
-Rules for working here. Two companion documents carry what this one deliberately
+Rules for working here. Three companion documents carry what this one deliberately
 does not:
 
 - [`docs/gateway-reference.md`](docs/gateway-reference.md) — what the Jamf Platform
   API Gateway actually does: path shapes, confirmed routes, status semantics,
   pagination. Findings about a beta product; expect them to change.
 - [`decisions/`](decisions/) — why the project is built this way. Immutable.
+- [`docs/BACKLOG.md`](docs/BACKLOG.md) — open work, each entry with why and what done
+  looks like. **Start here when resuming.** It is public, so tenant-specific open items
+  are kept in Claude Code project memory instead, and the file says so.
 
 ## Never force-add ignored files
 
