@@ -33,18 +33,18 @@ Software writes), the README's current-state "not yet verified" line and the
 CHANGELOG are updated, and, if the format was wrong, the builder and its tests are
 fixed first.
 
-## 6. Run the scope-membership canary gate before any CMMC object
+## 6. Run the scope-membership canary gate before any production object
 
 **Why:** [JPM-0009](../decisions/JPM-0009-computer-group-scope-membership-tools.md)'s
 four tools send a scope-only PUT. That Jamf accepts that body, leaves the rest of the
 object alone, and does not redistribute a profile to Macs already in scope, are all
-unverified, as is the XML body format (item 1). A wrong answer on a CMMC profile
+unverified, as is the XML body format (item 1). A wrong answer on a compliance profile
 reaches the whole fleet.
 
 **How:** the operator creates a throwaway profile and a throwaway policy, each scoped
 to one test Mac. Dry run, then run an add on each. In Jamf, check the profile and the
 MDM command history for any redistribution to other Macs, and check the result's
-`otherFieldsUnchanged` is `true`. Then one CMMC object, then the rest.
+`otherFieldsUnchanged` is `true`. Then one production object, then the rest.
 
 **Done when:** the outcome, including how Jamf treated the body, is recorded in
 `docs/gateway-reference.md` (Scope-membership writes) and here, and item 1 is updated if

@@ -5,11 +5,11 @@
 
 ## Context
 
-A new macOS 27 compliance computer group has to join the scope of about 60 macOS
-configuration profiles and about 22 policies, so that Macs that upgrade keep their
-compliance baseline. In the Jamf console that is 82 manual edits, each with no diff
-and no rollback, on objects that carry the CMMC control baseline for every Mac in the
-CUI environment.
+When a compliance benchmark adds a smart group for a new macOS major version, that
+group has to join the scope of every hand-built profile and policy that delivers the
+baseline, often dozens of objects, so that Macs that upgrade keep their compliance
+baseline. In the Jamf console that is one manual edit per object, each with no diff
+and no rollback, on objects that carry security controls for every Mac in scope.
 
 Classic has no "add to scope" operation. A scope changes by PUTting a `<scope>`, and a
 PUT replaces what was there. That is the same trap
@@ -19,7 +19,7 @@ deleted. Two further risks are specific to these objects:
 
 - A configuration profile's `redeploy_on_update` setting decides whether a change
   redeploys it. Whether a scope-only change counts is not documented. If it does, one
-  edit would reinstall a CMMC profile on every scoped Mac.
+  edit would reinstall a compliance profile on every scoped Mac.
 - Whether Jamf honours a PUT whose root element has only `<scope>` and leaves
   `general` and the payloads untouched is also undocumented. If it does not, a scope
   edit could blank a profile.
@@ -125,11 +125,11 @@ No scope-level equivalent for these two object types was found. Not verified exh
 ### Negative
 
 - **First-use canary gate.** Redistribution behaviour and scope-only PUT behaviour are
-  unverified, and so is the XML body format (BACKLOG-1). Before any CMMC object is
+  unverified, and so is the XML body format (BACKLOG-1). Before any production object is
   touched, the operator creates a throwaway profile and a throwaway policy, each scoped
   to one test Mac. Run an add on each. In Jamf, check the profile and the Mac's MDM
   command history for any redistribution to other Macs, and check the result reports
-  `otherFieldsUnchanged: true`. Only then change one CMMC object, then the rest. The
+  `otherFieldsUnchanged: true`. Only then change one production object, then the rest. The
   outcome is recorded in `docs/gateway-reference.md` and `docs/BACKLOG.md`.
 - A profile with any `redeploy_on_update` other than "Newly Assigned", or with user
   limitations, stays a console edit.
