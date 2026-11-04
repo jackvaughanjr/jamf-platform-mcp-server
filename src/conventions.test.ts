@@ -127,8 +127,9 @@ describe('the read/write server split', () => {
   it('registers no write tool on the read server', () => {
     const source = read('src/index.ts');
     expect(source).not.toContain('restricted-software.js');
+    expect(source).not.toContain('scope-membership.js');
     for (const name of toolNames('src/index.ts')) {
-      expect(name, `read server registers ${name}`).not.toMatch(/^(create|update|delete|execute|send)/);
+      expect(name, `read server registers ${name}`).not.toMatch(/^(create|update|delete|execute|send|add|remove)/);
     }
   });
 
@@ -136,12 +137,19 @@ describe('the read/write server split', () => {
     expect(
       toolNames('src/write-server.ts'),
       'Adding a write tool is a JPM-0008 decision: update this list in the same change as the ADR.',
-    ).toEqual(['createRestrictedSoftware', 'updateRestrictedSoftware']);
+    ).toEqual([
+      'addComputerGroupToPolicyScope',
+      'addComputerGroupToProfileScope',
+      'createRestrictedSoftware',
+      'removeComputerGroupFromPolicyScope',
+      'removeComputerGroupFromProfileScope',
+      'updateRestrictedSoftware',
+    ]);
   });
 
   // Delete is not granted (JPM-0008 part 5); the code should not be able to ask for it either.
   it('never issues DELETE or PATCH from the write path', () => {
-    for (const file of ['src/write-server.ts', 'src/restricted-software.ts']) {
+    for (const file of ['src/write-server.ts', 'src/restricted-software.ts', 'src/scope-membership.ts']) {
       for (const verb of ['DELETE', 'PATCH']) {
         expect(read(file), `${file} mentions ${verb}`).not.toContain(`'${verb}'`);
       }

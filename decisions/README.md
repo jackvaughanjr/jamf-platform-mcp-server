@@ -61,3 +61,7 @@ The distinction matters because ADRs are immutable and findings are not.
 - [JPM-0008](JPM-0008-reversible-writes-as-a-separate-server.md): Reversible writes
   ship as a second server from this repo, under its own credential and registered per
   project, starting with Restricted Software create and update. Delete is not granted.
+- [JPM-0009](JPM-0009-computer-group-scope-membership-tools.md): Four tools to add or
+  remove one computer group in a configuration profile's or policy's scope, one object per
+  call, refusing anything they cannot round-trip, fingerprinting every non-scope part
+  around each write, under the existing write integration and gated by a first-use canary.

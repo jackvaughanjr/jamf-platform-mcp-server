@@ -202,6 +202,34 @@ because Classic has always taken XML on writes and the GET advertises
 `application/xml`. Settle this with the first live create. The field is `name`, not
 `display_name`.
 
+**Scope-membership writes, operation pages read 2026-11-04, not yet called.** All under
+`proclassic`, no version, base `https://{region}.api.jamfcloud.com/proclassic`:
+
+| Operation page | Method and path | Permission (as published) |
+|---|---|---|
+| `findosxconfigurationprofilesbyid-1` | GET `/osxconfigurationprofiles/id/{id}` | `configuration-profiles:read` |
+| `updateosxconfigurationprofilebyid-1` | PUT `/osxconfigurationprofiles/id/{id}` | `configuration-profiles:update` |
+| `findpoliciesbyid-1` | GET `/policies/id/{id}` | `policies:read` |
+| `updatepolicybyid-1` | PUT `/policies/id/{id}` | `policies:update` |
+| `findcomputergroupsbyid-1` | GET `/computergroups/id/{id}` | `device-groups:read` |
+
+Both update pages publish no request body and no content type, and document only
+`201 Created`, the same as Restricted Software. The profile GET schema has
+`general.redeploy_on_update` (example "Newly Assigned", no enum given) and
+`distribution_method` ("Install Automatically" or "Make Available in Self Service");
+its `scope` has all computers, all JSS users, and lists of computers, buildings,
+departments, computer groups, JSS users and JSS user groups, plus `limitations` and
+`exclusions`. The policy `scope` has `all_computers`, `computers`, `computer_groups`,
+`buildings`, `departments`, `limit_to_users`, `limitations`, `exclusions`. The group
+GET has `name` and `is_smart`. Envelopes assumed from the Classic convention:
+`os_x_configuration_profile`, `policy`, `computer_group`.
+
+**Unverified until the JPM-0009 canary gate has run** (record the outcome here):
+(1) Jamf accepts a PUT whose root has only `<scope>`; (2) it leaves `general`,
+payloads and the rest untouched (each live call reports `otherFieldsUnchanged`);
+(3) a scope-only change does not redistribute a profile to Macs already in scope;
+(4) how Jamf answers a PUT for a signed profile; (5) the XML body format itself.
+
 Scopes are per operation and spelled `{resource}:{verb}`: `restricted-software:read`,
 `:create`, `:update`, `:delete`. That spelling is unlike the `read:pro:blueprints`
 form noted elsewhere. Do not derive one from the other.

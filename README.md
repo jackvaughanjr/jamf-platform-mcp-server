@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-345%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-370%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -56,8 +56,9 @@ Related work worth knowing about:
 ```
 src/
   index.ts              read server: tool registration, stdio transport
-  write-server.ts       write server (JPM-0008): restricted-software create/update only
+  write-server.ts       write server (JPM-0008, JPM-0009): the six write tools, nothing else
   restricted-software.ts  write logic: scope rules, XML, diff, read-back, rollback
+  scope-membership.ts   write logic: add/remove one computer group in a profile or policy scope
   mcp-common.ts         config loading and result rendering shared by both servers
   platform-client.ts    every gateway concern — auth, token cache, URL shapes, paging
   config.ts             environment validation (zod)
@@ -128,10 +129,14 @@ and `findCriteriaReferences` (compound), `listBlueprints` and
 count stays deliberately small
 ([JPM-0003](decisions/JPM-0003-passthrough-plus-selective-typed-tools.md)).
 
-Write server: `createRestrictedSoftware` and `updateRestrictedSoftware`, nothing else.
-Its read path is confirmed live against real entries; **a live write has not yet been
-made through it**, so the XML request body, which Jamf's pages do not publish, is
-still unverified. Open work is tracked in [docs/BACKLOG.md](docs/BACKLOG.md).
+Write server: `createRestrictedSoftware`, `updateRestrictedSoftware`, and four scope
+tools (`addComputerGroupToProfileScope`, `removeComputerGroupFromProfileScope`,
+`addComputerGroupToPolicyScope`, `removeComputerGroupFromPolicyScope`,
+[JPM-0009](decisions/JPM-0009-computer-group-scope-membership-tools.md)), nothing else.
+The restricted-software read path is confirmed live against real entries; **a live write
+has not yet been made through it**, so the XML request body, which Jamf's pages do not
+publish, is still unverified. The scope tools are unverified end to end and are gated by
+a first-use canary (JPM-0009; BACKLOG-6). Open work is tracked in [docs/BACKLOG.md](docs/BACKLOG.md).
 
 Pagination is confirmed live: a real page-1 request returned different records with
 `hasPrevious: true` and `totalPages: 13`, so `page` is 0-based as assumed and query
@@ -191,13 +196,15 @@ enumerable by reading one file.
 Reversible writes ship as a **second server** built from this repo,
 `dist/write-server.js`
 ([JPM-0008](decisions/JPM-0008-reversible-writes-as-a-separate-server.md)). It
-registers only `createRestrictedSoftware` and `updateRestrictedSoftware`: no
-passthrough, no read tools, and no delete. The read server registers no write
+registers only `createRestrictedSoftware`, `updateRestrictedSoftware` and the four
+scope-membership tools: no passthrough, no read tools, and no delete. The read server registers no write
 tools in any configuration.
 
 - **Its own integration.** A Platform environment integration named for its role
   (it is expected to grow), granted exactly what the write tools need. Today that is
-  `restricted-software:read`, `:create` and `:update`, and never `:delete`. Each new
+  `restricted-software:read`, `:create` and `:update`, plus (JPM-0009)
+  `configuration-profiles:read` and `:update`, `policies:read` and `:update`, and
+  `device-groups:read`; never any `:delete`. Each new
   write tool adds its permissions here, alongside its ADR. Keep it in its own
   1Password item, separate from the read integration, so the read server's credential
   can never write.
@@ -217,11 +224,14 @@ tools in any configuration.
   repository's `.claude/settings.local.json`, so every write prompts even in
   accept-edits mode.
 
-Both tools default to `dryRun: true`, which returns the exact XML and a
+All write tools default to `dryRun: true`, which returns the exact XML and a
 field-by-field diff and writes nothing. A real write reads the entry back and reports
 any field Jamf stored differently, and returns rollback arguments. Scope is required
 on create and never defaults to all computers. An update changes only the fields
-passed and leaves scope alone unless a complete replacement is given.
+passed and leaves scope alone unless a complete replacement is given. The scope tools
+take `{id, computerGroupId, dryRun?}`, send only the full `<scope>`, refuse anything
+they cannot round-trip, and report `otherFieldsUnchanged` from before/after hashes of
+everything but the scope.
 
 Credentials are injected at runtime so the secret never lands on disk:
 
@@ -272,7 +282,7 @@ against it would be a false promise.
 ## Testing
 
 ```bash
-npm test              # vitest, 345 tests
+npm test              # vitest, 370 tests
 npm run typecheck
 DRY_RUN=1 ./scripts/discover-gateway.sh    # probe matrix (pre-move gateway shapes; see the script header)
 ```

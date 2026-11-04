@@ -13,19 +13,33 @@ import {
   updateRestrictedSoftware,
   type WriteContext,
 } from './restricted-software.js';
+import {
+  addComputerGroupToPolicyScope,
+  addComputerGroupToProfileScope,
+  removeComputerGroupFromPolicyScope,
+  removeComputerGroupFromProfileScope,
+  scopeMembershipInputSchema,
+} from './scope-membership.js';
 
 /**
  * The write server (JPM-0008). Registers write tools and nothing else: no
  * passthrough, no read tools. Every mutation this project can make is a
  * `registerTool` call in this file, and `src/conventions.test.ts` holds the list.
  *
- * Runs under its own Jamf integration — restricted-software read, create and
- * update, never delete — and is registered per project, not globally, so its
- * tools appear only where the Jamf change log lives.
+ * Tools: createRestrictedSoftware, updateRestrictedSoftware (JPM-0008), and
+ * addComputerGroupToProfileScope, removeComputerGroupFromProfileScope, addComputerGroupToPolicyScope, removeComputerGroupFromPolicyScope (JPM-0009, src/scope-membership.ts).
+ *
+ * Runs under its own Jamf integration — restricted-software read/create/update,
+ * configuration-profiles read/update, policies read/update, device-groups read;
+ * never delete — and is registered per project, not globally, so its tools
+ * appear only where the Jamf change log lives.
  */
 
 const config = requireConfig();
-const ctx: WriteContext = { client: new JamfPlatformClient(config), writesEnabled: !config.readOnly };
+const ctx: WriteContext = {
+  client: new JamfPlatformClient(config),
+  writesEnabled: !config.readOnly,
+};
 
 const server = new McpServer({
   name: 'jamf-platform-mcp-write',
@@ -86,6 +100,90 @@ server.registerTool(
   async (input) => {
     try {
       return asContent(await updateRestrictedSoftware(ctx, input));
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+server.registerTool(
+  'addComputerGroupToProfileScope',
+  {
+    title: 'Add a computer group to a configuration profile scope',
+    description:
+      'WRITES TO JAMF PRO when dryRun is false. Adds one computer group to the scope of one macOS configuration profile, ' +
+      'by reading the live object and sending back only its full <scope>. Refuses when the group does not exist, when it is ' +
+      'already in the scope, when the scope is All Computers, or when the live scope holds anything this tool does not ' +
+      'model (users, limitations, user exclusions, network segments). Refuses unless the profile redeploy_on_update is exactly "Newly Assigned". The result reports the diff, ' +
+      'verifies by reading back, reports whether every non-scope part of the object is unchanged (hashes only), and gives the rollback.',
+    inputSchema: scopeMembershipInputSchema,
+  },
+  async (input) => {
+    try {
+      return asContent(await addComputerGroupToProfileScope(ctx, input));
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+server.registerTool(
+  'removeComputerGroupFromProfileScope',
+  {
+    title: 'Remove a computer group from a configuration profile scope',
+    description:
+      'WRITES TO JAMF PRO when dryRun is false. Removes one computer group from the scope of one macOS configuration profile, ' +
+      'by reading the live object and sending back only its full <scope>. Refuses when the group does not exist, when it is ' +
+      'not in the scope, when the scope is All Computers, or when the live scope holds anything this tool does not ' +
+      'model (users, limitations, user exclusions, network segments). Refuses unless the profile redeploy_on_update is exactly "Newly Assigned". The result reports the diff, ' +
+      'verifies by reading back, reports whether every non-scope part of the object is unchanged (hashes only), and gives the rollback.',
+    inputSchema: scopeMembershipInputSchema,
+  },
+  async (input) => {
+    try {
+      return asContent(await removeComputerGroupFromProfileScope(ctx, input));
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+server.registerTool(
+  'addComputerGroupToPolicyScope',
+  {
+    title: 'Add a computer group to a policy scope',
+    description:
+      'WRITES TO JAMF PRO when dryRun is false. Adds one computer group to the scope of one policy, ' +
+      'by reading the live object and sending back only its full <scope>. Refuses when the group does not exist, when it is ' +
+      'already in the scope, when the scope is All Computers, or when the live scope holds anything this tool does not ' +
+      'model (users, limitations, user exclusions, network segments). The result reports the diff, ' +
+      'verifies by reading back, reports whether every non-scope part of the object is unchanged (hashes only), and gives the rollback.',
+    inputSchema: scopeMembershipInputSchema,
+  },
+  async (input) => {
+    try {
+      return asContent(await addComputerGroupToPolicyScope(ctx, input));
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+server.registerTool(
+  'removeComputerGroupFromPolicyScope',
+  {
+    title: 'Remove a computer group from a policy scope',
+    description:
+      'WRITES TO JAMF PRO when dryRun is false. Removes one computer group from the scope of one policy, ' +
+      'by reading the live object and sending back only its full <scope>. Refuses when the group does not exist, when it is ' +
+      'not in the scope, when the scope is All Computers, or when the live scope holds anything this tool does not ' +
+      'model (users, limitations, user exclusions, network segments). The result reports the diff, ' +
+      'verifies by reading back, reports whether every non-scope part of the object is unchanged (hashes only), and gives the rollback.',
+    inputSchema: scopeMembershipInputSchema,
+  },
+  async (input) => {
+    try {
+      return asContent(await removeComputerGroupFromPolicyScope(ctx, input));
     } catch (error) {
       return asError(error);
     }
