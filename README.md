@@ -204,7 +204,9 @@ tools in any configuration.
   (it is expected to grow), granted exactly what the write tools need. Today that is
   `restricted-software:read`, `:create` and `:update`, plus (JPM-0009)
   `configuration-profiles:read` and `:update`, `policies:read` and `:update`, and
-  `device-groups:read`; never any `:delete`. Each new
+  `device-groups:read`; never any `:delete`. By operator decision it also holds
+  `:create` on configuration profiles, policies and device groups, and
+  `device-groups:update`, which no tool uses yet (JPM-0009). Each new
   write tool adds its permissions here, alongside its ADR. Keep it in its own
   1Password item, separate from the read integration, so the read server's credential
   can never write.

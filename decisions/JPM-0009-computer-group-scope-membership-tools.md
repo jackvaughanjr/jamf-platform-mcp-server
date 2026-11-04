@@ -77,6 +77,15 @@ integration. Its permissions gain `configuration-profiles:read`,
 `findpoliciesbyid-1`, `updatepolicybyid-1` and `findcomputergroupsbyid-1` on
 2026-11-04. No `:delete` permission is added.
 
+**The integration also holds `:create` on all three resources, and `device-groups:update`,
+which no tool uses.** The operator granted read, create and update on configuration
+profiles, policies and device groups on 2026-11-04 and chose to keep them, so that a
+create can be built later without re-provisioning. This departs from JPM-0008 part 2's
+"permissions track its tools exactly" for these three resources only. The credential
+is not the boundary for those verbs: the code is. No tool may issue a POST to these
+resources, or a PUT to a group, until a new ADR adds a typed tool for it, and every
+live write from this server needs the operator's approval in the session that makes it.
+
 ## Alternatives considered
 
 ### Replace the whole scope from caller-supplied values
@@ -124,7 +133,9 @@ No scope-level equivalent for these two object types was found. Not verified exh
   outcome is recorded in `docs/gateway-reference.md` and `docs/BACKLOG.md`.
 - A profile with any `redeploy_on_update` other than "Newly Assigned", or with user
   limitations, stays a console edit.
-- The permission set of the write integration grows by five.
+- The permission set of the write integration grows by five that the tools use, plus
+  `:create` on configuration profiles, policies and device groups and
+  `device-groups:update`, held unused by operator decision (see Decision).
 - Smart-group membership is not checked: adding a group that is empty or wrong is a
   valid call.
 
