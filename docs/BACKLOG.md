@@ -8,9 +8,30 @@ done looks like, so a session starting cold can pick it up.
 out of it. The operator keeps those items in Claude Code's project memory for this
 directory, which a new session loads automatically.
 
-Last reviewed 2026-10-09, at v0.4.0.
+Last reviewed 2026-11-04, after JPM-0009.
 
 ---
+
+## 7. Add typed create tools for profiles, policies and computer groups
+
+**Why:** the write server can change scope but cannot create anything, so the
+JPM-0009 canary gate (item 6) needs the operator to make its throwaway profile and
+policy by hand in the console. The write integration already holds `:create` on
+configuration profiles, policies and device groups, unused by operator decision
+(JPM-0009), so the credential is not the blocker; a reviewed tool is.
+
+**How:** a new ADR first, then typed tools in `src/write-server.ts` only, copying the
+existing write shape: no defaults, `dryRun` true by default, verify by read-back, and a
+rollback. Delete is not granted, so a create's rollback is an empty scope (and, for a
+policy, disabled) rather than a delete. A profile create sends a payload, unlike the
+scope tools: payloads can hold secrets, so the tool must never return or log payload
+content (hashes only, as the scope tools do), and the dry run should show structure, not
+values. Decide whether profile payloads come from a vetted allowlist of payload types
+rather than arbitrary XML.
+
+**Done when:** the ADR is accepted, the tools and their tests are merged,
+`src/conventions.test.ts` lists them, and a first live create (an empty-scope object) is
+verified and recorded in `docs/gateway-reference.md`.
 
 ## 1. Confirm the write server's request body on its first real write
 
