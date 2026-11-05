@@ -14,6 +14,13 @@ Last reviewed 2026-11-05, after JPM-0011.
 
 ## 8. Clear the npm audit findings in the runtime dependencies
 
+**Done 2026-11-05.** `npm audit fix` (no `--force`) cleared 9 of the 10 runtime advisories,
+lockfile only; tests, build and both servers' handshakes pass. **Remaining, accepted:** one
+moderate in `fast-xml-parser` 4.5.7's `XMLBuilder`, which this code never calls (it only
+parses); its fix is the 5.x line, a major version with a larger dependency set, so it moves
+with a reviewed Dependabot major PR rather than here. Going forward: CI fails on any high or
+critical runtime advisory, and Dependabot raises weekly grouped update PRs.
+
 **Why:** on 2026-11-05 `npm audit --omit=dev` reported 10 advisories in the runtime
 tree (1 critical, 4 high, 5 moderate; 15 including dev dependencies). They predate
 JPM-0011 and come mostly through the MCP SDK's HTTP stack: `proxy-addr` (critical),

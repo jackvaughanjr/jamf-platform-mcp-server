@@ -39,6 +39,11 @@ jobs:
       - name: Test
         run: npm test
 
+      # Fails on any high or critical advisory in the runtime tree (BACKLOG item 8).
+      # Dev-only advisories and moderates are reported by `npm audit`, not gated.
+      - name: No high or critical runtime advisories
+        run: npm audit --omit=dev --audit-level=high
+
       # No live identifiers in tracked files. Runs over everything, not just the
       # diff, so a leak that slipped in earlier cannot ride along unnoticed.
       - name: No live identifiers

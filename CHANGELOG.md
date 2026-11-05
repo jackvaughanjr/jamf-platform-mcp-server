@@ -10,6 +10,16 @@ guarantee.
 
 ## [Unreleased]
 
+### Security
+
+- Runtime dependency advisories cleared with `npm audit fix` (lockfile only, within the
+  ranges in `package.json`): `@modelcontextprotocol/sdk` 1.30.0 → 1.32.2, `zod` 4.4.3 →
+  4.6.7, and the transitive `proxy-addr`, `body-parser`, `fast-uri`, `hono`,
+  `@hono/node-server`, `qs` and `ip-address` fixes. One moderate remains, in
+  `fast-xml-parser`'s `XMLBuilder`, which this code does not use (BACKLOG item 8).
+- CI fails on any high or critical runtime advisory, and Dependabot opens weekly grouped
+  update PRs for npm and GitHub Actions.
+
 ### Changed
 
 - Scope-membership verification accepts Jamf's own normalisation of a configuration
