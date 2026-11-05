@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-370%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-398%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -56,9 +56,10 @@ Related work worth knowing about:
 ```
 src/
   index.ts              read server: tool registration, stdio transport
-  write-server.ts       write server (JPM-0008, JPM-0009): the six write tools, nothing else
+  write-server.ts       write server (JPM-0008, JPM-0009): the seven write tools, nothing else
   restricted-software.ts  write logic: scope rules, XML, diff, read-back, rollback
   scope-membership.ts   write logic: add/remove one computer group in a profile or policy scope
+  scope-membership-batch.ts  write logic: many of those as one reviewed plan (plan hash, one PUT per object)
   mcp-common.ts         config loading and result rendering shared by both servers
   platform-client.ts    every gateway concern — auth, token cache, URL shapes, paging
   config.ts             environment validation (zod)
@@ -132,13 +133,16 @@ count stays deliberately small
 Write server: `createRestrictedSoftware`, `updateRestrictedSoftware`, and four scope
 tools (`addComputerGroupToProfileScope`, `removeComputerGroupFromProfileScope`,
 `addComputerGroupToPolicyScope`, `removeComputerGroupFromPolicyScope`,
-[JPM-0009](decisions/JPM-0009-computer-group-scope-membership-tools.md)), nothing else.
+[JPM-0009](decisions/JPM-0009-computer-group-scope-membership-tools.md)), and
+`applyScopeMembershipBatch` ([JPM-0010](decisions/JPM-0010-scope-membership-batch-tool.md)),
+nothing else.
 The restricted-software read path is confirmed live against real entries, and
 **updates are confirmed live** (2026-11-04): Jamf accepted the XML body, which its pages
 do not publish, and the read-back verified. **Create has not yet been called.** The
 scope tools passed their first-use canary on 2026-11-05 (JPM-0009; see
 [docs/gateway-reference.md](docs/gateway-reference.md)): scope-only PUTs are accepted,
-leave everything else untouched, and did not redistribute a profile. Open work is tracked in [docs/BACKLOG.md](docs/BACKLOG.md).
+leave everything else untouched, and did not redistribute a profile. The batch tool
+sends the same scope-only PUT, one per object, but has not yet been called live. Open work is tracked in [docs/BACKLOG.md](docs/BACKLOG.md).
 
 Pagination is confirmed live: a real page-1 request returned different records with
 `hasPrevious: true` and `totalPages: 13`, so `page` is 0-based as assumed and query
@@ -198,8 +202,8 @@ enumerable by reading one file.
 Reversible writes ship as a **second server** built from this repo,
 `dist/write-server.js`
 ([JPM-0008](decisions/JPM-0008-reversible-writes-as-a-separate-server.md)). It
-registers only `createRestrictedSoftware`, `updateRestrictedSoftware` and the four
-scope-membership tools: no passthrough, no read tools, and no delete. The read server registers no write
+registers only `createRestrictedSoftware`, `updateRestrictedSoftware`, the four
+scope-membership tools and `applyScopeMembershipBatch`: no passthrough, no read tools, and no delete. The read server registers no write
 tools in any configuration.
 
 - **Its own integration.** A Platform environment integration named for its role
@@ -236,6 +240,16 @@ passed and leaves scope alone unless a complete replacement is given. The scope 
 take `{id, computerGroupId, dryRun?}`, send only the full `<scope>`, refuse anything
 they cannot round-trip, and report `otherFieldsUnchanged` from before/after hashes of
 everything but the scope.
+
+`applyScopeMembershipBatch` takes 1 to 150 `{kind, id, action, computerGroupId}`
+operations ([JPM-0010](decisions/JPM-0010-scope-membership-batch-tool.md)) so a
+rollout is reviewed and approved once. Its dry run (the default) validates every
+operation, returns a per-object before/after table and a `planHash`, or, if any operation
+is refused, every refusal and no hash. A live call must carry that `planHash`; it
+re-reads everything and writes nothing if any listed object or group changed since the
+dry run. Operations are grouped by object and each object gets one PUT with its final
+scope, read back and verified in order; the first failure stops the batch. The rollback
+is an inverse batch to be dry-run first.
 
 Credentials are injected at runtime so the secret never lands on disk:
 

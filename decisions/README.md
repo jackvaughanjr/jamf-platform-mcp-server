@@ -65,3 +65,7 @@ The distinction matters because ADRs are immutable and findings are not.
   remove one computer group in a configuration profile's or policy's scope, one object per
   call, refusing anything they cannot round-trip, fingerprinting every non-scope part
   around each write, under the existing write integration and gated by a first-use canary.
+- [JPM-0010](JPM-0010-scope-membership-batch-tool.md): A batch tool for computer group
+  scope changes, one PUT per object, approved once through a plan hash that binds the live
+  run to the reviewed dry run, stopping on the first failure with an inverse batch as the
+  rollback. Supersedes JPM-0009's rejection of a batch tool; the single tools stand.

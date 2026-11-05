@@ -1,6 +1,7 @@
 # JPM-0009: Four tools to add or remove one computer group in a profile or policy scope
 
-- **Status:** Accepted
+- **Status:** Accepted; the rejection of a batch tool superseded by
+  [JPM-0010](JPM-0010-scope-membership-batch-tool.md). Everything else stands.
 - **Date:** 2026-11-04
 
 ## Context

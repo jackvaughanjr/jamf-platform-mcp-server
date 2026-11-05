@@ -23,12 +23,12 @@ import { TARGET_KEYS, readIds, targetsXml, type ScopeTargets, type WriteContext 
  * refuses the call, because replace semantics would silently drop it.
  */
 
-const SERVICE = 'proclassic';
+export const SERVICE = 'proclassic';
 
 export type ScopeKind = 'profile' | 'policy';
 export type ScopeAction = 'add' | 'remove';
 
-interface KindSpec {
+export interface KindSpec {
   noun: string;
   resource: string;
   envelope: string;
@@ -36,7 +36,7 @@ interface KindSpec {
   removeTool: string;
 }
 
-const KINDS: Record<ScopeKind, KindSpec> = {
+export const KINDS: Record<ScopeKind, KindSpec> = {
   profile: {
     noun: 'configuration profile',
     resource: 'osxconfigurationprofiles',
@@ -187,7 +187,7 @@ export function buildScopeOnlyXml(kind: ScopeKind, scope: MembershipScope): stri
 // general includes its payloads, which can hold secrets) is never returned or logged.
 // ---------------------------------------------------------------------------
 
-function canonical(value: unknown): string {
+export function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value && typeof value === 'object') {
     const entries = Object.keys(value)
@@ -198,7 +198,7 @@ function canonical(value: unknown): string {
   return JSON.stringify(value) ?? 'null';
 }
 
-const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+export const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 
 export interface Fingerprint {
   overall: string;
@@ -221,13 +221,13 @@ export function differingSections(before: Fingerprint, after: Fingerprint): stri
 // Operation
 // ---------------------------------------------------------------------------
 
-interface GroupInfo {
+export interface GroupInfo {
   id: number;
   name: string;
   isSmart: boolean;
 }
 
-async function fetchGroup(client: JamfPlatformClient, groupId: number): Promise<GroupInfo> {
+export async function fetchGroup(client: JamfPlatformClient, groupId: number): Promise<GroupInfo> {
   let body: unknown;
   try {
     body = await client.request({
@@ -255,7 +255,7 @@ async function fetchGroup(client: JamfPlatformClient, groupId: number): Promise<
   };
 }
 
-async function fetchLive(client: JamfPlatformClient, kind: ScopeKind, id: number): Promise<LiveScopedObject> {
+export async function fetchLive(client: JamfPlatformClient, kind: ScopeKind, id: number): Promise<LiveScopedObject> {
   const body = await client.request({
     service: SERVICE,
     style: 'classic',
@@ -273,7 +273,7 @@ const ids = (scope: MembershipScope): Record<string, number[]> => {
   return out;
 };
 
-function scopeMismatches(intended: MembershipScope, stored: LiveScopedObject) {
+export function scopeMismatches(intended: MembershipScope, stored: LiveScopedObject) {
   const a = ids(intended);
   const b = ids(stored.scope);
   const out: Array<{ field: string; sent: unknown; stored: unknown }> = Object.keys(a)

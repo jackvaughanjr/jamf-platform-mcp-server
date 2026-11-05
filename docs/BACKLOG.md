@@ -63,7 +63,8 @@ fixed first.
 redistribution. Outcome in `docs/gateway-reference.md` (Scope-membership writes).
 
 **Why:** [JPM-0009](../decisions/JPM-0009-computer-group-scope-membership-tools.md)'s
-four tools send a scope-only PUT. That Jamf accepts that body, leaves the rest of the
+four tools, and the batch tool of [JPM-0010](../decisions/JPM-0010-scope-membership-batch-tool.md),
+send a scope-only PUT. That Jamf accepts that body, leaves the rest of the
 object alone, and does not redistribute a profile to Macs already in scope, are all
 unverified, as is the XML body format (item 1). A wrong answer on a compliance profile
 reaches the whole fleet.
@@ -114,7 +115,7 @@ passthrough offers no write verbs. The write server's tool list is pinned only b
 `src/conventions.test.ts`, which reads source, not by what a client actually sees.
 
 **Done when:** CI also starts `dist/write-server.js` with fixture credentials and fails
-unless `tools/list` returns exactly the six reviewed write tools (see
+unless `tools/list` returns exactly the seven reviewed write tools (see
 `src/conventions.test.ts`). Low priority: the source-level test already holds the
 list.
 

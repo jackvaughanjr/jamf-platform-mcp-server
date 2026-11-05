@@ -20,6 +20,7 @@ import {
   removeComputerGroupFromProfileScope,
   scopeMembershipInputSchema,
 } from './scope-membership.js';
+import { applyScopeMembershipBatch, scopeMembershipBatchInputSchema } from './scope-membership-batch.js';
 
 /**
  * The write server (JPM-0008). Registers write tools and nothing else: no
@@ -27,7 +28,9 @@ import {
  * `registerTool` call in this file, and `src/conventions.test.ts` holds the list.
  *
  * Tools: createRestrictedSoftware, updateRestrictedSoftware (JPM-0008), and
- * addComputerGroupToProfileScope, removeComputerGroupFromProfileScope, addComputerGroupToPolicyScope, removeComputerGroupFromPolicyScope (JPM-0009, src/scope-membership.ts).
+ * addComputerGroupToProfileScope, removeComputerGroupFromProfileScope, addComputerGroupToPolicyScope, removeComputerGroupFromPolicyScope (JPM-0009, src/scope-membership.ts),
+ * and applyScopeMembershipBatch (JPM-0010, src/scope-membership-batch.ts): many of those
+ * operations as one reviewed plan, bound to a live run by a plan hash.
  *
  * Runs under its own Jamf integration — restricted-software read/create/update,
  * configuration-profiles read/update, policies read/update, device-groups read;
@@ -184,6 +187,30 @@ server.registerTool(
   async (input) => {
     try {
       return asContent(await removeComputerGroupFromPolicyScope(ctx, input));
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+server.registerTool(
+  'applyScopeMembershipBatch',
+  {
+    title: 'Apply a reviewed batch of computer group scope changes',
+    description:
+      'WRITES TO JAMF PRO when dryRun is false. Applies 1 to 150 operations, each adding or removing one computer group ' +
+      'in the scope of one macOS configuration profile or policy, as ONE reviewed plan. Operations are grouped by object ' +
+      'and each object gets a single PUT carrying its final scope. Same refusal rules as the single tools; if any operation ' +
+      'is refused, the dry run returns every refusal and no planHash. A dry run (the default) returns the per-object ' +
+      'before/after table, totals and a planHash. A live call requires that planHash: it re-reads everything and writes ' +
+      'nothing if any listed object or group changed since the dry run. Objects are written in order, each read back and ' +
+      'verified (scope and a non-scope fingerprint); the first failure stops the batch and later objects are notAttempted. ' +
+      'The result carries a rollback: the inverse operations for every object written, as a dry run to be reviewed first.',
+    inputSchema: scopeMembershipBatchInputSchema,
+  },
+  async (input) => {
+    try {
+      return asContent(await applyScopeMembershipBatch(ctx, input));
     } catch (error) {
       return asError(error);
     }
