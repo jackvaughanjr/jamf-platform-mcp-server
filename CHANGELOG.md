@@ -12,6 +12,17 @@ guarantee.
 
 ### Added
 
+- `applyScopeMembershipBatch`, a fifth scope-membership tool
+  ([JPM-0010](decisions/JPM-0010-scope-membership-batch-tool.md)), amending JPM-0009's
+  rejection of a batch tool. Takes 1 to 150 add/remove operations across profiles and
+  policies, groups them by object and sends one scope-only PUT per object. The dry run
+  (default) returns a per-object table and a `planHash`, or every refusal and no hash; a
+  live call needs that hash and refuses, writing nothing, if any listed object or group
+  changed since the dry run. Each object is read back and fingerprint-checked; the first
+  failure stops the batch (later objects `notAttempted`) and the rollback is an inverse
+  batch to dry-run first. Why: per-call approval turned a large rollout into one prompt
+  per change. No new permissions. The scope-only PUT it sends passed the JPM-0009 canary on 2026-11-05;
+  the batch orchestration itself is unverified live until its first run.
 - Four write tools for scope membership
   ([JPM-0009](decisions/JPM-0009-computer-group-scope-membership-tools.md)):
   `addComputerGroupToProfileScope`, `removeComputerGroupFromProfileScope`,
