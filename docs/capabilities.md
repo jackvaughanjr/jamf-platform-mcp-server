@@ -1,6 +1,6 @@
 # What this server can answer
 
-Fifteen read tools over the Jamf Platform API Gateway, plus two write tools on a
+Fifteen read tools over the Jamf Platform API Gateway, plus write tools on a
 separate server, organised by question. You rarely
 know which endpoint you need when you start.
 
@@ -162,12 +162,41 @@ runs under its own integration and is registered per project.
 Not yet confirmed by a live write: the XML request body, which Jamf's operation pages
 do not publish.
 
+## Scripts and policies: create one (write server)
+
+`createScript` and `createPolicy`, on the write server
+([JPM-0012](../decisions/JPM-0012-create-script-and-policy-tools.md)). Create only: no
+update, enable or delete.
+
+- **Nothing defaults.** Every field is stated (all eight parameter labels on a script;
+  every trigger, the frequency, retry settings, each script with all eight parameters,
+  `recon` and Self Service on a policy). Unknown fields are rejected. A name that already
+  exists is refused, even for policies, where Jamf allows duplicates.
+- **A policy is always created disabled.** There is no `enabled` input. Scope is explicit
+  computer ids and computer group ids, with optional exclusions of the same kinds; all
+  computers is never sent, and an empty scope needs `emptyScopeIntended: true`. Packages
+  are not supported. Enable it in the Jamf console after review.
+- **Secrets stay hashed.** Script contents and every script parameter value appear only as
+  SHA-256 and length, in the dry run, the result, errors and logs. Parameter labels are
+  shown. A secret is better left empty at create and entered in the console, since the
+  tool's own arguments are in the session.
+- **Dry run first, then read-back.** The policy dry run is the exact XML with hidden values
+  replaced by their digest. A live create reads the object back, compares every field sent
+  (hidden values by hash), and for a policy checks that what it did not send (restart,
+  commands, packages, accounts, disk encryption) is inert.
+- **Rollback is manual**, since delete is not granted: keep the policy disabled, empty its
+  scope and delete it in the console; remove a script from every policy, then delete it.
+
+Not yet confirmed by a live create: the policy XML body (Jamf publishes none) and both
+read-back parsers against a newly created object.
+
 ---
 
 ## What it cannot do
 
 - **Change anything from the read server.** No writes, by decision and by credential
-  scope. The write server changes only Restricted Software, and never deletes.
+  scope. The write server changes Restricted Software and computer group scope membership,
+  creates scripts and disabled policies, and never deletes.
 - **See `PENDING` declarations**, or any device that has not reported at all.
 - **Prove a negative on its own.** Every "nothing found" is bounded by what was
   checked; the tools say what that was.

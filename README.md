@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-418%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-467%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -17,7 +17,8 @@ read-only integration cannot mutate a fleet no matter what this code does. See
 [JPM-0001](decisions/JPM-0001-target-platform-api-gateway.md).
 
 A second, optional server built from the same code makes a deliberately narrow set
-of reversible writes, today Restricted Software create and update, under its own
+of reversible writes, today Restricted Software create and update, computer group
+scope changes, and script and (always disabled) policy creation, under its own
 credential ([JPM-0008](decisions/JPM-0008-reversible-writes-as-a-separate-server.md)).
 The read server never gains a write tool.
 Canonical location: `github.com/jackvaughanjr/jamf-platform-mcp-server`.
@@ -56,10 +57,13 @@ Related work worth knowing about:
 ```
 src/
   index.ts              read server: tool registration, stdio transport
-  write-server.ts       write server (JPM-0008, JPM-0009): the seven write tools, nothing else
+  write-server.ts       write server (JPM-0008 to JPM-0012): the nine write tools, nothing else
   restricted-software.ts  write logic: scope rules, XML, diff, read-back, rollback
   scope-membership.ts   write logic: add/remove one computer group in a profile or policy scope
   scope-membership-batch.ts  write logic: many of those as one reviewed plan (plan hash, one PUT per object)
+  create-script.ts      write logic: create one script (Jamf Pro API JSON), contents hashed (JPM-0012)
+  create-policy.ts      write logic: create one policy, always disabled, explicit scope, parameters hashed (JPM-0012)
+  secret-material.ts    hashing and error scrubbing for values the create tools never echo
   payload-normalization.ts  semantic check that a profile difference is only Jamf regenerating inner payload ids (JPM-0011)
   mcp-common.ts         config loading and result rendering shared by both servers
   platform-client.ts    every gateway concern — auth, token cache, URL shapes, paging
@@ -136,14 +140,16 @@ tools (`addComputerGroupToProfileScope`, `removeComputerGroupFromProfileScope`,
 `addComputerGroupToPolicyScope`, `removeComputerGroupFromPolicyScope`,
 [JPM-0009](decisions/JPM-0009-computer-group-scope-membership-tools.md)), and
 `applyScopeMembershipBatch` ([JPM-0010](decisions/JPM-0010-scope-membership-batch-tool.md)),
-nothing else.
+and `createScript` and `createPolicy`
+([JPM-0012](decisions/JPM-0012-create-script-and-policy-tools.md)), nothing else.
 The restricted-software read path is confirmed live against real entries, and
 **updates are confirmed live** (2026-11-04): Jamf accepted the XML body, which its pages
 do not publish, and the read-back verified. **Create has not yet been called.** The
 scope tools passed their first-use canary on 2026-11-05 (JPM-0009; see
 [docs/gateway-reference.md](docs/gateway-reference.md)): scope-only PUTs are accepted,
 leave everything else untouched, and did not redistribute a profile. The batch tool
-sends the same scope-only PUT, one per object, but has not yet been called live. Open work is tracked in [docs/BACKLOG.md](docs/BACKLOG.md).
+sends the same scope-only PUT, one per object, but has not yet been called live. The
+script and policy creates (JPM-0012) have not yet been called live either. Open work is tracked in [docs/BACKLOG.md](docs/BACKLOG.md).
 
 Pagination is confirmed live: a real page-1 request returned different records with
 `hasPrevious: true` and `totalPages: 13`, so `page` is 0-based as assumed and query
@@ -204,15 +210,16 @@ Reversible writes ship as a **second server** built from this repo,
 `dist/write-server.js`
 ([JPM-0008](decisions/JPM-0008-reversible-writes-as-a-separate-server.md)). It
 registers only `createRestrictedSoftware`, `updateRestrictedSoftware`, the four
-scope-membership tools and `applyScopeMembershipBatch`: no passthrough, no read tools, and no delete. The read server registers no write
+scope-membership tools, `applyScopeMembershipBatch`, `createScript` and `createPolicy`: no passthrough, no read tools, and no delete. The read server registers no write
 tools in any configuration.
 
 - **Its own integration.** A Platform environment integration named for its role
   (it is expected to grow), granted exactly what the write tools need. Today that is
   `restricted-software:read`, `:create` and `:update`, plus (JPM-0009)
   `configuration-profiles:read` and `:update`, `policies:read` and `:update`, and
-  `device-groups:read`; never any `:delete`. By operator decision it also holds
-  `:create` on configuration profiles, policies and device groups, and
+  `device-groups:read`, plus (JPM-0012) `policies:create`, `scripts:create`,
+  `scripts:read` and `categories:read`; never any `:delete`. By operator decision it
+  also holds `:create` on configuration profiles and device groups, and
   `device-groups:update`, which no tool uses yet (JPM-0009). Each new
   write tool adds its permissions here, alongside its ADR. Keep it in its own
   1Password item, separate from the read integration, so the read server's credential
@@ -247,6 +254,17 @@ payload plist, and a semantic comparison shows nothing else changed
 `otherFieldsUnchanged` is still false but the result adds `normalizedByJamf` (a count)
 and `otherFieldsSemanticallyUnchanged: true`, and the object counts as verified. Any
 other difference still fails.
+
+`createScript` and `createPolicy`
+([JPM-0012](decisions/JPM-0012-create-script-and-policy-tools.md)) create only. Every
+field is stated, unknown fields are rejected, and a name that already exists is refused.
+A policy is **always created disabled** (there is no `enabled` input), with an explicit
+scope of computer ids and computer group ids (never all computers; an empty scope only
+with `emptyScopeIntended: true`), and without packages. Script contents and every script
+parameter value are shown only as SHA-256 and length, in the dry run, the result, errors
+and logs. A live create reads the object back and compares every field it sent; a policy
+is also checked for anything it did not send (restart, commands, packages) being inert.
+Enabling a created policy is done in the Jamf console.
 
 `applyScopeMembershipBatch` takes 1 to 150 `{kind, id, action, computerGroupId}`
 operations ([JPM-0010](decisions/JPM-0010-scope-membership-batch-tool.md)) so a

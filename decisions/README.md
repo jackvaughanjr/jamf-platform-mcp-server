@@ -74,3 +74,8 @@ The distinction matters because ADRs are immutable and findings are not.
   re-serialisation of the payload plist, as a verified-good scope write when a semantic
   comparison proves nothing else changed; any other non-scope difference still fails.
   Amends the verification rule in JPM-0009 and JPM-0010; adds `fast-xml-parser`.
+- [JPM-0012](JPM-0012-create-script-and-policy-tools.md): Create-only `createScript` and
+  `createPolicy` on the write server. Every field explicit, unknown fields rejected; policies
+  always created disabled with an explicit scope, never all computers; script contents and
+  parameter values shown only as SHA-256 and length; packages rejected; verified by
+  read-back. Adds `scripts:create`, `scripts:read` and `categories:read`.

@@ -21,6 +21,8 @@ import {
   scopeMembershipInputSchema,
 } from './scope-membership.js';
 import { applyScopeMembershipBatch, scopeMembershipBatchInputSchema } from './scope-membership-batch.js';
+import { createScript, createScriptInputSchema } from './create-script.js';
+import { createPolicy, createPolicyInputSchema } from './create-policy.js';
 
 /**
  * The write server (JPM-0008). Registers write tools and nothing else: no
@@ -29,13 +31,16 @@ import { applyScopeMembershipBatch, scopeMembershipBatchInputSchema } from './sc
  *
  * Tools: createRestrictedSoftware, updateRestrictedSoftware (JPM-0008), and
  * addComputerGroupToProfileScope, removeComputerGroupFromProfileScope, addComputerGroupToPolicyScope, removeComputerGroupFromPolicyScope (JPM-0009, src/scope-membership.ts),
- * and applyScopeMembershipBatch (JPM-0010, src/scope-membership-batch.ts): many of those
- * operations as one reviewed plan, bound to a live run by a plan hash.
+ * applyScopeMembershipBatch (JPM-0010, src/scope-membership-batch.ts): many of those
+ * operations as one reviewed plan, bound to a live run by a plan hash, and
+ * createScript and createPolicy (JPM-0012, src/create-script.ts, src/create-policy.ts):
+ * create only, every field explicit, policies always disabled, script contents and
+ * parameter values shown as hashes only.
  *
  * Runs under its own Jamf integration — restricted-software read/create/update,
- * configuration-profiles read/update, policies read/update, device-groups read;
- * never delete — and is registered per project, not globally, so its tools
- * appear only where the Jamf change log lives.
+ * configuration-profiles read/update, policies read/create/update, device-groups read,
+ * scripts read/create, categories read; never delete — and is registered per project,
+ * not globally, so its tools appear only where the Jamf change log lives.
  */
 
 const config = requireConfig();
@@ -211,6 +216,52 @@ server.registerTool(
   async (input) => {
     try {
       return asContent(await applyScopeMembershipBatch(ctx, input));
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+server.registerTool(
+  'createScript',
+  {
+    title: 'Create a Jamf Pro script',
+    description:
+      'WRITES TO JAMF PRO when dryRun is false. Creates one script through the Jamf Pro API (POST /pro/v1/scripts). ' +
+      'Every field must be stated: name, categoryId (-1 for none), priority, info, notes, all eight parameter labels, ' +
+      'osRequirements and scriptContents; unknown fields are rejected. Refuses a name that already exists, a missing ' +
+      'category, and contents without a "#!" line, with CRLF line endings or a NUL. The contents are NEVER echoed: the ' +
+      'dry run (the default) and the result show their SHA-256 and length. A live call reads the script back and ' +
+      'compares every field, contents by hash. This server cannot update or delete a script; the rollback is manual.',
+    inputSchema: createScriptInputSchema,
+  },
+  async (input) => {
+    try {
+      return asContent(await createScript(ctx, input));
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+server.registerTool(
+  'createPolicy',
+  {
+    title: 'Create a Jamf Pro policy, disabled',
+    description:
+      'WRITES TO JAMF PRO when dryRun is false. Creates one policy through Classic (POST /proclassic/policies/id/0, XML). ' +
+      'ALWAYS created DISABLED; there is no enabled input. Every trigger, the frequency, retry settings, the explicit scope ' +
+      '(computer ids and computer group ids, with optional exclusions; never all computers; empty only with ' +
+      'emptyScopeIntended true), each script with all eight parameters, recon and Self Service must be stated; unknown ' +
+      'fields are rejected. Packages are not supported. Script parameter VALUES are never echoed: the dry run (the default) ' +
+      'shows the exact XML with each value replaced by its SHA-256 and length. A live call reads the policy back and ' +
+      'compares every field sent, and checks that what was not sent is inert. The rollback is: keep it disabled, empty its ' +
+      'scope, delete it in the console.',
+    inputSchema: createPolicyInputSchema,
+  },
+  async (input) => {
+    try {
+      return asContent(await createPolicy(ctx, input));
     } catch (error) {
       return asError(error);
     }

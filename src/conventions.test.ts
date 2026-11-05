@@ -129,6 +129,8 @@ describe('the read/write server split', () => {
     expect(source).not.toContain('restricted-software.js');
     expect(source).not.toContain('scope-membership.js');
     expect(source).not.toContain('scope-membership-batch.js');
+    expect(source).not.toContain('create-script.js');
+    expect(source).not.toContain('create-policy.js');
     for (const name of toolNames('src/index.ts')) {
       expect(name, `read server registers ${name}`).not.toMatch(/^(create|update|delete|execute|send|add|remove)/);
     }
@@ -142,11 +144,26 @@ describe('the read/write server split', () => {
       'addComputerGroupToPolicyScope',
       'addComputerGroupToProfileScope',
       'applyScopeMembershipBatch',
+      'createPolicy',
       'createRestrictedSoftware',
+      'createScript',
       'removeComputerGroupFromPolicyScope',
       'removeComputerGroupFromProfileScope',
       'updateRestrictedSoftware',
     ]);
+  });
+
+  // JPM-0012: a policy is created disabled. The builder must not be able to emit anything else,
+  // and neither create tool may offer an update path.
+  it('creates policies disabled and never all computers, and has no update or enable path', () => {
+    const policy = read('src/create-policy.ts');
+    expect(policy).toContain("'    <enabled>false</enabled>'");
+    expect(policy).not.toMatch(/<enabled>\$\{/);
+    expect(policy).toContain("'    <all_computers>false</all_computers>'");
+    expect(policy).not.toMatch(/<all_computers>\$\{/);
+    for (const file of ['src/create-script.ts', 'src/create-policy.ts']) {
+      expect(read(file), `${file} issues a PUT`).not.toContain("method: 'PUT'");
+    }
   });
 
   // Delete is not granted (JPM-0008 part 5); the code should not be able to ask for it either.
@@ -156,6 +173,9 @@ describe('the read/write server split', () => {
       'src/restricted-software.ts',
       'src/scope-membership.ts',
       'src/scope-membership-batch.ts',
+      'src/create-script.ts',
+      'src/create-policy.ts',
+      'src/secret-material.ts',
     ]) {
       for (const verb of ['DELETE', 'PATCH']) {
         expect(read(file), `${file} mentions ${verb}`).not.toContain(`'${verb}'`);
