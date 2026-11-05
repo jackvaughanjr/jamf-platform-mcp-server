@@ -10,6 +10,26 @@ guarantee.
 
 ## [Unreleased]
 
+### Changed
+
+- Scope-membership verification accepts Jamf's own normalisation of a configuration
+  profile ([JPM-0011](decisions/JPM-0011-accept-jamf-payload-identifier-normalization.md)).
+  After a scope-only PUT Jamf was seen regenerating the `PayloadUUID` and
+  `PayloadIdentifier` of a profile's inner payload dictionary and re-serialising the stored
+  payload plist, with every setting and top-level key unchanged; the whole-object
+  fingerprint then differed and the batch stopped. Only when the raw fingerprint differs,
+  and only for profiles, the plists are now parsed and compared: if everything but those two
+  keys on the direct `PayloadContent` items is identical, and every other `general` field
+  and section is unchanged, the object counts as verified. The single tools return
+  `otherFieldsUnchanged: false` plus `normalizedByJamf` (a count) and
+  `otherFieldsSemanticallyUnchanged: true`; the batch marks the object `written` and
+  continues. Any other difference, or a plist that does not parse, still fails. Counts
+  only; no identifier or payload content is returned or logged. `planHash` and policies are
+  unchanged. Amends the verification rule in JPM-0009 and JPM-0010. Unverified live: tested
+  against fixtures only.
+- New runtime dependency `fast-xml-parser` 4.5.7 (exact), used only for that comparison,
+  configured not to expand entities.
+
 ### Added
 
 - `applyScopeMembershipBatch`, a fifth scope-membership tool

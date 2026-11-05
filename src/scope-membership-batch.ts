@@ -5,10 +5,10 @@ import {
   SERVICE,
   buildScopeOnlyXml,
   canonical,
-  differingSections,
   fetchGroup,
   fetchLive,
   fingerprintNonScope,
+  judgeNonScope,
   scopeMismatches,
   sha256,
   type Fingerprint,
@@ -18,6 +18,7 @@ import {
   type ScopeAction,
   type ScopeKind,
 } from './scope-membership.js';
+import type { NormalizedByJamf } from './payload-normalization.js';
 import type { WriteContext } from './restricted-software.js';
 
 /**
@@ -326,6 +327,9 @@ export async function applyScopeMembershipBatch(ctx: WriteContext, rawInput: Sco
     verified: boolean | null;
     otherFieldsUnchanged: boolean | null;
     differingSections: string[];
+    /** Present only when the non-scope difference is exactly Jamf's identifier normalisation (JPM-0011). */
+    normalizedByJamf?: NormalizedByJamf;
+    otherFieldsSemanticallyUnchanged?: true;
     error: string | null;
   };
   const results: ObjectResult[] = [];
@@ -379,10 +383,10 @@ export async function applyScopeMembershipBatch(ctx: WriteContext, rawInput: Sco
     try {
       const stored = await fetchLive(ctx.client, obj.kind, obj.id);
       const mismatches = scopeMismatches(obj.intended, stored);
-      const differing = differingSections(obj.fingerprint, fingerprintNonScope(stored.nonScope));
+      const verdict = judgeNonScope(obj.kind, obj.live.nonScope, obj.fingerprint, stored.nonScope);
       const verified = mismatches.length === 0;
-      const unchanged = differing.length === 0;
-      const ok = verified && unchanged;
+      const unchanged = verdict.otherFieldsUnchanged;
+      const ok = verified && verdict.acceptable;
       if (!ok) stopped = true;
       results.push({
         ...base,
@@ -390,12 +394,18 @@ export async function applyScopeMembershipBatch(ctx: WriteContext, rawInput: Sco
         writtenAt,
         verified,
         otherFieldsUnchanged: unchanged,
-        differingSections: differing,
+        differingSections: verdict.differingSections,
+        ...(verdict.normalizedByJamf
+          ? {
+              normalizedByJamf: verdict.normalizedByJamf,
+              otherFieldsSemanticallyUnchanged: verdict.otherFieldsSemanticallyUnchanged,
+            }
+          : {}),
         error: ok
           ? null
           : [
               verified ? '' : `scope mismatch: ${mismatches.map((m) => m.field).join(', ')}`,
-              unchanged ? '' : 'non-scope sections changed',
+              verdict.acceptable ? '' : 'non-scope sections changed',
             ]
               .filter(Boolean)
               .join('; '),

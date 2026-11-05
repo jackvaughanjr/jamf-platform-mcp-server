@@ -33,6 +33,7 @@ let groupStore: Map<number, { name: string; isSmart: boolean }>;
 let putFailsFor: Set<string>;
 let putIgnoredFor: Set<string>; // PUT succeeds but nothing is stored
 let putMutatesOther: Set<string>; // PUT succeeds and also changes a non-scope field
+let putRewritesPayload: Map<string, string>; // PUT succeeds and Jamf stores this payload text instead
 let readFailsAfterPut: Set<string>;
 let putLog: Array<{ url: string; body: string }>;
 let putDone: Set<string>;
@@ -84,6 +85,7 @@ beforeEach(() => {
   putFailsFor = new Set();
   putIgnoredFor = new Set();
   putMutatesOther = new Set();
+  putRewritesPayload = new Map();
   readFailsAfterPut = new Set();
   putLog = [];
   putDone = new Set();
@@ -107,6 +109,8 @@ beforeEach(() => {
       if (s && !putIgnoredFor.has(key)) {
         s.groups = idsFromXml(body);
         if (putMutatesOther.has(key)) s.payload = 'changed-by-jamf';
+        const rewritten = putRewritesPayload.get(key);
+        if (rewritten !== undefined) s.payload = rewritten;
       }
       putDone.add(key);
       return res('<id>1</id>', 201);
@@ -446,5 +450,92 @@ describe('live run', () => {
       expect(out.objects[0].error).toMatch(/reading it back failed/);
       expect(out.rollback.operations).toHaveLength(2);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// JPM-0011: Jamf regenerates inner payload identifiers on a scope-only PUT.
+// ---------------------------------------------------------------------------
+describe('Jamf payload identifier normalisation (JPM-0011)', () => {
+  const U = (n: number) => `deadbeef-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const SETTING = 'SETTING-VALUE-MARKER-XYZ';
+  const plist = (o: { top?: number; inner?: number; setting?: string; compact?: boolean }) => {
+    const nl = o.compact ? '' : '\n\t';
+    return (
+      '<?xml version="1.0" encoding="UTF-8"?>\n' +
+      `<plist version="${o.compact ? '1' : '1.0'}"><dict>${nl}<key>PayloadUUID</key><string>${U(o.top ?? 1)}</string>` +
+      `${nl}<key>PayloadContent</key><array><dict><key>PayloadUUID</key><string>${U(o.inner ?? 10)}</string>` +
+      `<key>PayloadIdentifier</key><string>com.example.inner.${o.inner ?? 10}</string>` +
+      `<key>Setting</key><string>${o.setting ?? SETTING}</string></dict></array></dict></plist>`
+    );
+  };
+  const seedPlists = () => {
+    store.set('profile:501', { kind: 'profile', groups: [901], payload: plist({}) });
+    store.set('profile:502', { kind: 'profile', groups: [901, 903], payload: plist({}) });
+    store.set('policy:601', { kind: 'policy', groups: [901] });
+  };
+  const text = (out: unknown) =>
+    JSON.stringify(out) + JSON.stringify(putLog) + JSON.stringify((console.error as any).mock.calls);
+
+  it('marks a normalised object written, reports counts only, and continues', async () => {
+    seedPlists();
+    const { planHash } = await dry(standardOps());
+    putRewritesPayload.set('profile:501', plist({ inner: 20, compact: true }));
+    putRewritesPayload.set('profile:502', plist({ inner: 30, compact: true }));
+    const out = (await live(standardOps(), planHash)) as Record<string, any>;
+    expect(out.ok).toBe(true);
+    expect(out.stoppedOnFailure).toBe(false);
+    expect(out.objects.map((o: any) => o.status)).toEqual(['written', 'written', 'written']);
+    for (const o of out.objects.slice(0, 2)) {
+      expect(o).toMatchObject({
+        verified: true,
+        otherFieldsUnchanged: false,
+        differingSections: ['general'],
+        normalizedByJamf: { section: 'general', payloadIdentifiersRegenerated: 1 },
+        otherFieldsSemanticallyUnchanged: true,
+        error: null,
+      });
+    }
+    expect(out.objects[2]).toMatchObject({ otherFieldsUnchanged: true });
+    expect(out.objects[2]).not.toHaveProperty('normalizedByJamf');
+    expect(out.totals).toMatchObject({ written: 3, failed: 0, notAttempted: 0 });
+    expect(puts()).toHaveLength(3);
+    for (const secret of [SETTING, 'deadbeef-', 'PayloadUUID', 'com.example.inner']) expect(text(out)).not.toContain(secret);
+  });
+
+  it.each([
+    ['an inner setting change', plist({ inner: 20, setting: 'changed', compact: true })],
+    ['a top-level PayloadUUID change', plist({ inner: 20, top: 2, compact: true })],
+    ['an unparseable plist', 'not a plist'],
+  ])('stops the batch on %s', async (_name, rewritten) => {
+    seedPlists();
+    const { planHash } = await dry(standardOps());
+    putRewritesPayload.set('profile:501', rewritten);
+    const out = (await live(standardOps(), planHash)) as Record<string, any>;
+    expect(out.ok).toBe(false);
+    expect(out.objects.map((o: any) => o.status)).toEqual(['failed', 'notAttempted', 'notAttempted']);
+    expect(out.objects[0]).toMatchObject({ otherFieldsUnchanged: false, differingSections: ['general'] });
+    expect(out.objects[0]).not.toHaveProperty('normalizedByJamf');
+    expect(out.objects[0].error).toMatch(/non-scope sections changed/);
+    expect(puts()).toHaveLength(1);
+  });
+
+  it('a policy is unaffected: a changed non-scope field still stops the batch', async () => {
+    store.set('policy:601', { kind: 'policy', groups: [901], payload: plist({}) });
+    const ops = [op('policy', 601, 'add', 902)];
+    const { planHash } = await dry(ops);
+    putRewritesPayload.set('policy:601', plist({ inner: 20, compact: true }));
+    const out = (await live(ops, planHash)) as Record<string, any>;
+    expect(out.ok).toBe(false);
+    expect(out.objects[0]).toMatchObject({ status: 'failed', differingSections: ['general'] });
+    expect(out.objects[0]).not.toHaveProperty('normalizedByJamf');
+  });
+
+  it('planHash still binds the raw non-scope fingerprint', async () => {
+    seedPlists();
+    const { planHash } = await dry(standardOps());
+    (store.get('profile:501') as Stored).payload = plist({ inner: 20, compact: true });
+    await expect(live(standardOps(), planHash)).rejects.toThrow(/live state changed since the dry run/);
+    expect(puts()).toHaveLength(0);
   });
 });

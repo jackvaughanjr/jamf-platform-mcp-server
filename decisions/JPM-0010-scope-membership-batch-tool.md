@@ -1,6 +1,8 @@
 # JPM-0010: A batch tool for computer group scope changes, approved once through a plan hash
 
-- **Status:** Accepted
+- **Status:** Accepted; the non-scope verification rule for configuration profiles
+  superseded in part by
+  [JPM-0011](JPM-0011-accept-jamf-payload-identifier-normalization.md).
 - **Date:** 2026-11-05
 - **Amends:** the "A batch tool" alternative in
   [JPM-0009](JPM-0009-computer-group-scope-membership-tools.md), which rejected it. The
