@@ -69,3 +69,8 @@ The distinction matters because ADRs are immutable and findings are not.
   scope changes, one PUT per object, approved once through a plan hash that binds the live
   run to the reviewed dry run, stopping on the first failure with an inverse batch as the
   rollback. Supersedes JPM-0009's rejection of a batch tool; the single tools stand.
+- [JPM-0011](JPM-0011-accept-jamf-payload-identifier-normalization.md): Accept Jamf's
+  regeneration of a configuration profile's inner payload identifiers, and its
+  re-serialisation of the payload plist, as a verified-good scope write when a semantic
+  comparison proves nothing else changed; any other non-scope difference still fails.
+  Amends the verification rule in JPM-0009 and JPM-0010; adds `fast-xml-parser`.

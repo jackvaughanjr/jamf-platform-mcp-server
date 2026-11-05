@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 import { extractClassicDetail } from './automations.js';
+import { assessProfileNormalization, type NormalizedByJamf } from './payload-normalization.js';
 import type { JamfPlatformClient } from './platform-client.js';
 import { TARGET_KEYS, readIds, targetsXml, type ScopeTargets, type WriteContext } from './restricted-software.js';
 
@@ -217,6 +218,47 @@ export function differingSections(before: Fingerprint, after: Fingerprint): stri
   return [...keys].filter((k) => before.sections[k] !== after.sections[k]).sort();
 }
 
+/**
+ * The verdict on a non-scope read-back (JPM-0011). The raw fingerprint is checked first;
+ * only when it differs, and only for a profile, is the semantic comparison consulted. The
+ * comparison accepts exactly Jamf's regeneration of the inner payload identifiers and
+ * nothing else.
+ */
+export interface NonScopeVerdict {
+  /** The raw non-scope fingerprint is identical. */
+  otherFieldsUnchanged: boolean;
+  differingSections: string[];
+  /** The difference is exactly Jamf's identifier normalisation: verified-good. */
+  normalizedByJamf?: NormalizedByJamf;
+  /** True only alongside normalizedByJamf. */
+  otherFieldsSemanticallyUnchanged?: true;
+  /** The object counts as verified-good: unchanged, or normalised by Jamf. */
+  acceptable: boolean;
+}
+
+export function judgeNonScope(
+  kind: ScopeKind,
+  beforeNonScope: Record<string, unknown>,
+  beforeFingerprint: Fingerprint,
+  storedNonScope: Record<string, unknown>,
+): NonScopeVerdict {
+  const differing = differingSections(beforeFingerprint, fingerprintNonScope(storedNonScope));
+  if (differing.length === 0) return { otherFieldsUnchanged: true, differingSections: [], acceptable: true };
+  if (kind === 'profile') {
+    const assessed = assessProfileNormalization(beforeNonScope, storedNonScope);
+    if (assessed.normalized) {
+      return {
+        otherFieldsUnchanged: false,
+        differingSections: differing,
+        normalizedByJamf: assessed.normalizedByJamf,
+        otherFieldsSemanticallyUnchanged: true,
+        acceptable: true,
+      };
+    }
+  }
+  return { otherFieldsUnchanged: false, differingSections: differing, acceptable: false };
+}
+
 // ---------------------------------------------------------------------------
 // Operation
 // ---------------------------------------------------------------------------
@@ -417,6 +459,7 @@ export async function changeScopeMembership(
   let verification: Record<string, unknown>;
   let otherFieldsUnchanged: boolean;
   let differing: string[];
+  let normalization: Pick<NonScopeVerdict, 'normalizedByJamf' | 'otherFieldsSemanticallyUnchanged'> = {};
   try {
     const stored = await fetchLive(ctx.client, kind, id);
     const mismatches = scopeMismatches(intended, stored);
@@ -425,8 +468,15 @@ export async function changeScopeMembership(
       mismatches,
       storedComputerGroupIds: stored.scope.computerGroupIds,
     };
-    differing = differingSections(before, fingerprintNonScope(stored.nonScope));
-    otherFieldsUnchanged = differing.length === 0;
+    const verdict = judgeNonScope(kind, live.nonScope, before, stored.nonScope);
+    differing = verdict.differingSections;
+    otherFieldsUnchanged = verdict.otherFieldsUnchanged;
+    if (verdict.normalizedByJamf) {
+      normalization = {
+        normalizedByJamf: verdict.normalizedByJamf,
+        otherFieldsSemanticallyUnchanged: verdict.otherFieldsSemanticallyUnchanged,
+      };
+    }
   } catch (error) {
     verification = {
       verified: false,
@@ -446,6 +496,7 @@ export async function changeScopeMembership(
     verification,
     otherFieldsUnchanged,
     differingSections: differing,
+    ...normalization,
     rollback,
   };
 }

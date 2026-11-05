@@ -240,6 +240,18 @@ add and after the remove; (4) **still unknown:** how Jamf answers a PUT for a si
 profile; (5) settled by (1). The canary only shows "Newly Assigned" behaviour, which the
 profile tools require; a profile set otherwise is still refused.
 
+**Jamf normalises inner payload identifiers on a scope-only PUT (observed once, after
+the canary).** On a scope-only PUT to a configuration profile, Jamf regenerated the
+`PayloadUUID` and `PayloadIdentifier` of the inner payload dictionary (the item in
+`PayloadContent`) and re-serialised the stored `general.payloads` plist (whitespace, key
+order, `<plist version="1">`). Every setting, the top-level profile payload keys, and all
+other `general` fields were the same, and the profile was not redistributed. Other
+profiles in the same rollout were unaffected, so it is not universal. It is Jamf's own
+normalisation, not something the request caused; the cause (for example the way the
+profile was first created) is unknown. A whole-object fingerprint therefore reports a
+difference in `general`. See
+[JPM-0011](../decisions/JPM-0011-accept-jamf-payload-identifier-normalization.md).
+
 Scopes are per operation and spelled `{resource}:{verb}`: `restricted-software:read`,
 `:create`, `:update`, `:delete`. That spelling is unlike the `read:pro:blueprints`
 form noted elsewhere. Do not derive one from the other.

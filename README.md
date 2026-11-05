@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-398%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-418%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -60,6 +60,7 @@ src/
   restricted-software.ts  write logic: scope rules, XML, diff, read-back, rollback
   scope-membership.ts   write logic: add/remove one computer group in a profile or policy scope
   scope-membership-batch.ts  write logic: many of those as one reviewed plan (plan hash, one PUT per object)
+  payload-normalization.ts  semantic check that a profile difference is only Jamf regenerating inner payload ids (JPM-0011)
   mcp-common.ts         config loading and result rendering shared by both servers
   platform-client.ts    every gateway concern — auth, token cache, URL shapes, paging
   config.ts             environment validation (zod)
@@ -239,7 +240,13 @@ on create and never defaults to all computers. An update changes only the fields
 passed and leaves scope alone unless a complete replacement is given. The scope tools
 take `{id, computerGroupId, dryRun?}`, send only the full `<scope>`, refuse anything
 they cannot round-trip, and report `otherFieldsUnchanged` from before/after hashes of
-everything but the scope.
+everything but the scope. One difference is accepted: when Jamf regenerates the
+`PayloadUUID` and `PayloadIdentifier` of a profile's inner payloads and re-serialises the
+payload plist, and a semantic comparison shows nothing else changed
+([JPM-0011](decisions/JPM-0011-accept-jamf-payload-identifier-normalization.md)),
+`otherFieldsUnchanged` is still false but the result adds `normalizedByJamf` (a count)
+and `otherFieldsSemanticallyUnchanged: true`, and the object counts as verified. Any
+other difference still fails.
 
 `applyScopeMembershipBatch` takes 1 to 150 `{kind, id, action, computerGroupId}`
 operations ([JPM-0010](decisions/JPM-0010-scope-membership-batch-tool.md)) so a
@@ -248,8 +255,9 @@ operation, returns a per-object before/after table and a `planHash`, or, if any 
 is refused, every refusal and no hash. A live call must carry that `planHash`; it
 re-reads everything and writes nothing if any listed object or group changed since the
 dry run. Operations are grouped by object and each object gets one PUT with its final
-scope, read back and verified in order; the first failure stops the batch. The rollback
-is an inverse batch to be dry-run first.
+scope, read back and verified in order; the first failure stops the batch, except that an
+object Jamf only normalised (above) is marked `written` with the same two extra fields and
+the batch continues. The rollback is an inverse batch to be dry-run first.
 
 Credentials are injected at runtime so the secret never lands on disk:
 

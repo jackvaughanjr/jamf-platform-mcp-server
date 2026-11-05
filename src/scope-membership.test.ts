@@ -575,3 +575,107 @@ describe('fingerprint', () => {
     expect(differingSections(a, fingerprintNonScope({ general: { a: 1, b: [1, 2] } }))).toEqual(['self_service']);
   });
 });
+
+// ---------------------------------------------------------------------------
+// JPM-0011: Jamf regenerates inner payload identifiers on a scope-only PUT.
+// ---------------------------------------------------------------------------
+describe('Jamf payload identifier normalisation (JPM-0011)', () => {
+  const U = (n: number) => `deadbeef-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const SETTING = 'SETTING-VALUE-MARKER-XYZ';
+  const plist = (o: { top?: number; inner?: number; setting?: string; compact?: boolean; items?: number }) => {
+    const nl = o.compact ? '' : '\n\t';
+    const item = (n: number) =>
+      `<dict>${nl}<key>PayloadUUID</key>${nl}<string>${U(n)}</string>${nl}<key>PayloadIdentifier</key>${nl}` +
+      `<string>com.example.inner.${n}</string>${nl}<key>Setting</key><string>${o.setting ?? SETTING}</string></dict>`;
+    const inner = o.inner ?? 10;
+    const items = Array.from({ length: o.items ?? 1 }, (_, i) => item(inner + i)).join(nl);
+    return (
+      '<?xml version="1.0" encoding="UTF-8"?>\n' +
+      `<plist version="${o.compact ? '1' : '1.0'}"><dict>${nl}<key>PayloadUUID</key><string>${U(o.top ?? 1)}</string>` +
+      `${nl}<key>PayloadContent</key><array>${nl}${items}</array></dict></plist>`
+    );
+  };
+  const bothGroups = scopeBody({
+    computer_groups: [
+      { id: 901, name: 'a' },
+      { id: 902, name: 'b' },
+    ],
+    all_jss_users: false,
+  });
+  const run = async (beforeBody: unknown, afterBody: unknown) => {
+    stub(res(beforeBody), res(groupBody()), res('', 201), res(afterBody));
+    const r = await addComputerGroupToProfileScope(ctx(), { ...input, dryRun: false });
+    if (r.dryRun) throw new Error('expected a live result');
+    return r;
+  };
+  const everything = (r: unknown) =>
+    JSON.stringify(r) +
+    fetchMock.mock.calls.map((c) => String((c[1] as RequestInit | undefined)?.body ?? '')).join('') +
+    vi.mocked(console.error).mock.calls.join('');
+
+  it('accepts regenerated inner ids and a re-serialised plist, reporting counts only', async () => {
+    const r = await run(
+      profileBody({ general: { payloads: plist({}) } }),
+      profileBody({ general: { payloads: plist({ inner: 20, compact: true }) }, scope: bothGroups }),
+    );
+    expect(r.verification).toMatchObject({ verified: true });
+    expect(r.otherFieldsUnchanged).toBe(false);
+    expect(r.differingSections).toEqual(['general']);
+    expect(r).toMatchObject({
+      normalizedByJamf: { section: 'general', payloadIdentifiersRegenerated: 1 },
+      otherFieldsSemanticallyUnchanged: true,
+    });
+    const text = everything(r);
+    for (const secret of [SETTING, 'deadbeef-', 'PayloadUUID', 'com.example.inner']) expect(text).not.toContain(secret);
+  });
+
+  it.each([
+    ['an inner setting change', plist({ inner: 20, setting: 'changed', compact: true }), {}],
+    ['a changed top-level PayloadUUID', plist({ inner: 20, top: 2, compact: true }), {}],
+    ['an inner item added', plist({ inner: 20, items: 2, compact: true }), {}],
+    ['another general field changing', plist({ inner: 20, compact: true }), { name: 'Renamed' }],
+    ['an unparseable plist', 'not a plist', {}],
+  ])('still fails on %s', async (_name, payloads, general) => {
+    const r = await run(
+      profileBody({ general: { payloads: plist({}) } }),
+      profileBody({ general: { payloads, ...general }, scope: bothGroups }),
+    );
+    expect(r.otherFieldsUnchanged).toBe(false);
+    expect(r.differingSections).toEqual(['general']);
+    expect(r).not.toHaveProperty('normalizedByJamf');
+    expect(r).not.toHaveProperty('otherFieldsSemanticallyUnchanged');
+  });
+
+  it('still fails when self_service changed, even with a normalised general', async () => {
+    const r = await run(
+      profileBody({ general: { payloads: plist({}) } }),
+      profileBody({
+        general: { payloads: plist({ inner: 20, compact: true }) },
+        scope: bothGroups,
+        extra: { self_service: { use_for_self_service: true } },
+      }),
+    );
+    expect(r.otherFieldsUnchanged).toBe(false);
+    expect(r.differingSections).toEqual(['general', 'self_service']);
+    expect(r).not.toHaveProperty('normalizedByJamf');
+  });
+
+  it('does not apply to policies: a changed non-scope field stays a failure', async () => {
+    const after = policyBody({
+      general: { note: plist({ inner: 20, compact: true }) },
+      scope: scopeBody({
+        computer_groups: [
+          { id: 901, name: 'a' },
+          { id: 902, name: 'b' },
+        ],
+        limit_to_users: { user_groups: [] },
+      }),
+    });
+    stub(res(policyBody({ general: { note: plist({}) } })), res(groupBody()), res('', 201), res(after));
+    const r = await addComputerGroupToPolicyScope(ctx(), { id: 601, computerGroupId: 902, dryRun: false });
+    if (r.dryRun) throw new Error('expected a live result');
+    expect(r.otherFieldsUnchanged).toBe(false);
+    expect(r.differingSections).toEqual(['general']);
+    expect(r).not.toHaveProperty('normalizedByJamf');
+  });
+});
