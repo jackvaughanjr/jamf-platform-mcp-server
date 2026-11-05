@@ -21,7 +21,7 @@ jobs:
           # clone would make them pass vacuously.
           fetch-depth: 0
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
