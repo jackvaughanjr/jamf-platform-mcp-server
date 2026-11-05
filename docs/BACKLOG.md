@@ -33,6 +33,23 @@ Software writes), the README's current-state "not yet verified" line and the
 CHANGELOG are updated, and, if the format was wrong, the builder and its tests are
 fixed first.
 
+## 6. Run the scope-membership canary gate before any production object
+
+**Why:** [JPM-0009](../decisions/JPM-0009-computer-group-scope-membership-tools.md)'s
+four tools send a scope-only PUT. That Jamf accepts that body, leaves the rest of the
+object alone, and does not redistribute a profile to Macs already in scope, are all
+unverified, as is the XML body format (item 1). A wrong answer on a compliance profile
+reaches the whole fleet.
+
+**How:** the operator creates a throwaway profile and a throwaway policy, each scoped
+to one test Mac. Dry run, then run an add on each. In Jamf, check the profile and the
+MDM command history for any redistribution to other Macs, and check the result's
+`otherFieldsUnchanged` is `true`. Then one production object, then the rest.
+
+**Done when:** the outcome, including how Jamf treated the body, is recorded in
+`docs/gateway-reference.md` (Scope-membership writes) and here, and item 1 is updated if
+the body format was settled.
+
 ## 2. Rewrite `scripts/discover-gateway.sh` for the current gateway
 
 **Why:** Jamf moved the Platform API between 2026-08-10 and 2026-10-06. The script
@@ -70,8 +87,8 @@ passthrough offers no write verbs. The write server's tool list is pinned only b
 `src/conventions.test.ts`, which reads source, not by what a client actually sees.
 
 **Done when:** CI also starts `dist/write-server.js` with fixture credentials and fails
-unless `tools/list` returns exactly `createRestrictedSoftware` and
-`updateRestrictedSoftware`. Low priority: the source-level test already holds the
+unless `tools/list` returns exactly the six reviewed write tools (see
+`src/conventions.test.ts`). Low priority: the source-level test already holds the
 list.
 
 ## 5. Let the local ADR hook accept a Status-only pointer without an override

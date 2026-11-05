@@ -12,6 +12,18 @@ guarantee.
 
 ### Added
 
+- Four write tools for scope membership
+  ([JPM-0009](decisions/JPM-0009-computer-group-scope-membership-tools.md)):
+  `addComputerGroupToProfileScope`, `removeComputerGroupFromProfileScope`,
+  `addComputerGroupToPolicyScope` and `removeComputerGroupFromPolicyScope`. One object
+  per call, dry run by default; they send only the full `<scope>`, refuse anything they
+  cannot round-trip (user scope, limitations, All Computers, a profile whose
+  `redeploy_on_update` is not "Newly Assigned"), verify by read-back, report
+  `otherFieldsUnchanged` from before/after hashes of every non-scope part, and return the
+  inverse call as the rollback. The write integration needs five more permissions
+  (`configuration-profiles:read` and `:update`, `policies:read` and `:update`,
+  `device-groups:read`). **Unverified live:** run the canary gate in JPM-0009 first
+  (BACKLOG-6).
 - `docs/BACKLOG.md`: open work, each entry with why it exists and what done looks
   like, linked from CLAUDE.md and the README.
 

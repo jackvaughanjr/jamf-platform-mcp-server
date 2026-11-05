@@ -200,7 +200,7 @@ function readBoolean(value: unknown, field: string): boolean {
   throw new Error(`restricted_software.general.${field} is ${JSON.stringify(value)}, not a boolean. Refusing to guess it.`);
 }
 
-function readIds(value: unknown, singular: string, path: string): number[] {
+export function readIds(value: unknown, singular: string, path: string): number[] {
   if (value === undefined || value === null || value === '') return [];
   // Classic JSON is an array of {id, name}; the published schema (derived from XML)
   // wraps each as {computer: {id, name}}. Both are accepted. A lone object is a
@@ -225,7 +225,7 @@ function isNonEmpty(value: unknown): boolean {
   return value === true || (typeof value === 'string' && value !== '') || typeof value === 'number';
 }
 
-const TARGET_KEYS: Array<[keyof ScopeTargets, string, string]> = [
+export const TARGET_KEYS: Array<[keyof ScopeTargets, string, string]> = [
   ['computerIds', 'computers', 'computer'],
   ['computerGroupIds', 'computer_groups', 'computer_group'],
   ['buildingIds', 'buildings', 'building'],
@@ -298,7 +298,7 @@ export function escapeXml(value: string): string {
     .replace(/'/g, '&apos;');
 }
 
-function targetsXml(targets: ScopeTargets, indent: string): string[] {
+export function targetsXml(targets: ScopeTargets, indent: string): string[] {
   // An empty list is emitted as an empty element on purpose: when a scope is sent,
   // it replaces the live one in full, and an omitted list must not be read as
   // "leave that list as it was".
