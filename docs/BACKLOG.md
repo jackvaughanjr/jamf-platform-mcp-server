@@ -8,9 +8,30 @@ done looks like, so a session starting cold can pick it up.
 out of it. The operator keeps those items in Claude Code's project memory for this
 directory, which a new session loads automatically.
 
-Last reviewed 2026-11-04, after JPM-0009.
+Last reviewed 2026-11-05, after JPM-0011.
 
 ---
+
+## 8. Clear the npm audit findings in the runtime dependencies
+
+**Why:** on 2026-11-05 `npm audit --omit=dev` reported 10 advisories in the runtime
+tree (1 critical, 4 high, 5 moderate; 15 including dev dependencies). They predate
+JPM-0011 and come mostly through the MCP SDK's HTTP stack: `proxy-addr` (critical),
+`body-parser`, `fast-uri`, `hono`, `@hono/node-server`, `qs`, `ip-address`
+(transitive), plus `@modelcontextprotocol/sdk` and `zod` directly. This server runs
+over stdio, so most are not reachable as published, but it holds a credential that can
+change profiles and policies, and a clean tree is cheaper to defend than an argument
+about reachability. `fast-xml-parser` 4.5.7's moderate advisory is in `XMLBuilder`,
+which this code does not use; its fix is the 5.x line (a major version).
+
+**How:** bump `@modelcontextprotocol/sdk` and `zod` to fixed versions and let the
+transitive fixes follow (`npm audit fix`, no `--force`), then re-run the full suite and
+a live read handshake on both servers. Decide separately whether to move
+`fast-xml-parser` to 5.x, reviewing its larger dependency set first. Pin what changes.
+
+**Done when:** `npm audit --omit=dev` is clean (or each remaining advisory is recorded
+here as not reachable, with the reason), tests pass, both servers start and list their
+tools, and the CHANGELOG notes the bumps.
 
 ## 7. Add typed create tools for profiles, policies and computer groups
 
