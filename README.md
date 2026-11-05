@@ -133,10 +133,12 @@ Write server: `createRestrictedSoftware`, `updateRestrictedSoftware`, and four s
 tools (`addComputerGroupToProfileScope`, `removeComputerGroupFromProfileScope`,
 `addComputerGroupToPolicyScope`, `removeComputerGroupFromPolicyScope`,
 [JPM-0009](decisions/JPM-0009-computer-group-scope-membership-tools.md)), nothing else.
-The restricted-software read path is confirmed live against real entries; **a live write
-has not yet been made through it**, so the XML request body, which Jamf's pages do not
-publish, is still unverified. The scope tools are unverified end to end and are gated by
-a first-use canary (JPM-0009; BACKLOG-6). Open work is tracked in [docs/BACKLOG.md](docs/BACKLOG.md).
+The restricted-software read path is confirmed live against real entries, and
+**updates are confirmed live** (2026-11-04): Jamf accepted the XML body, which its pages
+do not publish, and the read-back verified. **Create has not yet been called.** The
+scope tools passed their first-use canary on 2026-11-05 (JPM-0009; see
+[docs/gateway-reference.md](docs/gateway-reference.md)): scope-only PUTs are accepted,
+leave everything else untouched, and did not redistribute a profile. Open work is tracked in [docs/BACKLOG.md](docs/BACKLOG.md).
 
 Pagination is confirmed live: a real page-1 request returned different records with
 `hasPrevious: true` and `totalPages: 13`, so `page` is 0-based as assumed and query

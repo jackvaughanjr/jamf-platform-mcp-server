@@ -192,17 +192,19 @@ form even for a collection, derived from the XML root rather than from pluralisi
 path segment `restrictedsoftware`. It is the only one of these pages that declares an
 explicit `xml.name`. Any code computing an envelope key from the URL segment misses it.
 
-**Restricted Software writes, read from the operation pages 2026-10-06, not yet
-called.** Create is `POST /restrictedsoftware/id/0` (the id is a placeholder; Jamf
+**Restricted Software writes, read from the operation pages 2026-10-06; update
+confirmed live 2026-11-04, create not yet called.** Create is `POST /restrictedsoftware/id/0` (the id is a placeholder; Jamf
 assigns one) and update is `PUT /restrictedsoftware/id/{id}`, both under `proclassic`
 with no version. Both pages document only a `201 Created` response and **publish no
 request body at all**, neither a schema nor a content type. The write server sends
 XML shaped like the GET schema (`<restricted_software><general>…</general><scope>…`),
 because Classic has always taken XML on writes and the GET advertises
-`application/xml`. Settle this with the first live create. The field is `name`, not
-`display_name`.
+`application/xml`. **Update confirmed live 2026-11-04:** two scope-only updates (an
+exclusion added) were accepted with this XML and verified on read-back, general fields
+unchanged. Create is still unverified; settle it with the first live create. The field
+is `name`, not `display_name`.
 
-**Scope-membership writes, operation pages read 2026-11-04, not yet called.** All under
+**Scope-membership writes, operation pages read 2026-11-04, called live 2026-11-05.** All under
 `proclassic`, no version, base `https://{region}.api.jamfcloud.com/proclassic`:
 
 | Operation page | Method and path | Permission (as published) |
@@ -224,11 +226,19 @@ departments, computer groups, JSS users and JSS user groups, plus `limitations` 
 GET has `name` and `is_smart`. Envelopes assumed from the Classic convention:
 `os_x_configuration_profile`, `policy`, `computer_group`.
 
-**Unverified until the JPM-0009 canary gate has run** (record the outcome here):
-(1) Jamf accepts a PUT whose root has only `<scope>`; (2) it leaves `general`,
-payloads and the rest untouched (each live call reports `otherFieldsUnchanged`);
-(3) a scope-only change does not redistribute a profile to Macs already in scope;
-(4) how Jamf answers a PUT for a signed profile; (5) the XML body format itself.
+**JPM-0009 canary, 2026-11-05.** A throwaway profile (one harmless custom-settings
+payload, `redeploy_on_update` "Newly Assigned", installed on one Mac) and a disabled
+throwaway policy, both scoped to that one Mac. An existing smart group with no members
+was added to each, then removed, with the four tools. Results:
+(1) **accepted:** Jamf takes a PUT whose root has only `<scope>`, as XML; the
+envelopes `os_x_configuration_profile`, `policy` and `computer_group` are correct;
+(2) **untouched:** every call reported `otherFieldsUnchanged: true` (general and
+payloads included in the hashes), and a full export of both objects before and after
+was byte-identical; (3) **no redistribution:** the Mac already holding the profile got
+no MDM command of any kind (completed, pending or failed) for nine minutes after the
+add and after the remove; (4) **still unknown:** how Jamf answers a PUT for a signed
+profile; (5) settled by (1). The canary only shows "Newly Assigned" behaviour, which the
+profile tools require; a profile set otherwise is still refused.
 
 Scopes are per operation and spelled `{resource}:{verb}`: `restricted-software:read`,
 `:create`, `:update`, `:delete`. That spelling is unlike the `read:pro:blueprints`

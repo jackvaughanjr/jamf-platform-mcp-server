@@ -14,6 +14,9 @@ Last reviewed 2026-10-09, at v0.4.0.
 
 ## 1. Confirm the write server's request body on its first real write
 
+**Update confirmed live 2026-11-04** (see gateway-reference.md); what remains is the
+first real **create**.
+
 **Why:** Jamf's operation pages for Restricted Software create and update publish no
 request body at all. `src/restricted-software.ts` sends XML shaped like the GET schema
 (`<restricted_software><general>…</general><scope>…</scope>`), because Classic has
@@ -34,6 +37,9 @@ CHANGELOG are updated, and, if the format was wrong, the builder and its tests a
 fixed first.
 
 ## 6. Run the scope-membership canary gate before any production object
+
+**Done 2026-11-05.** Passed: scope-only PUT accepted, other fields untouched, no
+redistribution. Outcome in `docs/gateway-reference.md` (Scope-membership writes).
 
 **Why:** [JPM-0009](../decisions/JPM-0009-computer-group-scope-membership-tools.md)'s
 four tools send a scope-only PUT. That Jamf accepts that body, leaves the rest of the

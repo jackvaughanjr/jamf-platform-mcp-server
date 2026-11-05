@@ -22,8 +22,10 @@ guarantee.
   `otherFieldsUnchanged` from before/after hashes of every non-scope part, and return the
   inverse call as the rollback. The write integration needs five more permissions
   (`configuration-profiles:read` and `:update`, `policies:read` and `:update`,
-  `device-groups:read`). **Unverified live:** run the canary gate in JPM-0009 first
-  (BACKLOG-6).
+  `device-groups:read`). The JPM-0009 canary passed on 2026-11-05: scope-only PUTs are
+  accepted, leave the rest of the object untouched, and did not redistribute a profile.
+- Restricted Software updates confirmed live on 2026-11-04 with the XML body the server
+  sends; create is still unverified (BACKLOG-1).
 - `docs/BACKLOG.md`: open work, each entry with why it exists and what done looks
   like, linked from CLAUDE.md and the README.
 
