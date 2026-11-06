@@ -10,6 +10,15 @@ guarantee.
 
 ## [Unreleased]
 
+### Documentation
+
+- `CLAUDE.md` and `CONTRIBUTING.md` state a working rule for agents acting for the maintainer: a
+  GitHub write, a merge included, needs his written approval naming the repo and action, and
+  every push is checked for public-readiness first.
+- That rule's wording on approval is clarified: the agent's request names what it covers, and
+  the maintainer's reply approving it covers exactly that; a merge needs its own request and
+  approval.
+
 ### Security
 
 - Runtime dependency advisories cleared with `npm audit fix` (lockfile only, within the

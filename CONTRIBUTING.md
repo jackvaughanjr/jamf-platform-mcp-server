@@ -162,6 +162,27 @@ against a live tenant. No test in this repo can confirm the gateway's real behav
 
 ## Commit messages and PRs
 
+**GitHub writes need the maintainer's documented approval; access is not permission.** An
+agent acting for the maintainer inherits his access, which is never a reason to act.
+
+- Any GitHub write (creating a branch, pushing, opening or commenting on a PR or issue,
+  merging, changing settings) runs only with the maintainer's written approval. The approval
+  is written, and the agent's request names what it covers: the specific action and each PR
+  by number. The maintainer's reply approving that request ("yes", "go ahead") covers exactly
+  what the request listed and nothing more; he doesn't have to repeat the numbers. If the
+  reply could be read more than one way, or names something the request didn't list, the
+  agent asks. An approval passed on from another session he's working in comes with the
+  request it answered. Approval of an exact change covers the branch, commits, push and PR
+  that carry it. A merge needs its own request and approval.
+- **This repository is public, so a push is publication.** Before every push, and again
+  before a merge, check the full diff, every commit message and the PR body for anything that
+  doesn't belong in public: secrets, internal hostnames or identifiers, private-environment
+  details, security findings or incident descriptions. Check visibility live
+  (`gh repo view --json visibility`), never from memory.
+- A merge also needs required checks passing, the repo's own merge method, and no bypassing
+  of branch protection (`--admin`). If any check fails, don't merge; report back.
+
+
 Explain **why**; the diff shows what. Where a change corrects an earlier conclusion,
 say so explicitly rather than quietly replacing it — this project's history contains
 several retractions and the reasoning is worth more than a tidy log.
