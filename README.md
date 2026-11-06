@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-467%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-469%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -20,7 +20,9 @@ A second, optional server built from the same code makes a deliberately narrow s
 of reversible writes, today Restricted Software create and update, computer group
 scope changes, and script and (always disabled) policy creation, under its own
 credential ([JPM-0008](decisions/JPM-0008-reversible-writes-as-a-separate-server.md)).
-The read server never gains a write tool.
+[JPM-0013](decisions/JPM-0013-write-surface-and-permissions.md) decides the write server's
+whole intended surface and permission set once; the tools it lists beyond today's nine are
+built in phases. The read server never gains a write tool.
 Canonical location: `github.com/jackvaughanjr/jamf-platform-mcp-server`.
 
 **Tier:** Prototype — no production dependants, upstream API in public beta, minor
@@ -220,8 +222,8 @@ tools in any configuration.
   `device-groups:read`, plus (JPM-0012) `policies:create`, `scripts:create`,
   `scripts:read` and `categories:read`; never any `:delete`. By operator decision it
   also holds `:create` on configuration profiles and device groups, and
-  `device-groups:update`, which no tool uses yet (JPM-0009). Each new
-  write tool adds its permissions here, alongside its ADR. Keep it in its own
+  `device-groups:update`, which no tool uses yet (JPM-0009). That was the state before
+  JPM-0013, which fixes the complete set (below). Keep it in its own
   1Password item, separate from the read integration, so the read server's credential
   can never write.
 - **Its own env file**, with `JAMF_READ_ONLY=false`. With the flag on, the server
@@ -266,6 +268,20 @@ and logs. A live create reads the object back and compares every field it sent; 
 is also checked for anything it did not send (restart, commands, packages) being inert.
 Enabling a created policy is done in the Jamf console.
 
+**The complete permission set** ([JPM-0013](decisions/JPM-0013-write-surface-and-permissions.md)
+decision 8) is `:read`, `:create` and `:update` on nine resources: `restricted-software`,
+`configuration-profiles`, `policies`, `scripts`, `device-groups`, `extension-attributes`,
+`categories`, `packages` and `advanced-device-searches` (27 permissions); plus, granted ahead
+of any tool, 20 on patch policies, patch titles, apps, app package information, internal patch
+sources, advanced user searches, user extension attributes and user groups. No other
+permission is held. Never granted, on either integration: any `:delete`, any `:execute`,
+device secrets, device actions and MDM command queuing, enrollment invitations and webhooks;
+the write integration also never holds Devices, Users or Device history read. Holding a permission does not authorise a tool: a tool
+not listed in JPM-0013 needs its own record, and the nine tools above are still the whole
+write server until a phase of JPM-0013 builds more. The conventions test sweeps the write
+modules for the permanent exclusions (no `DELETE` or `PATCH`, no all-computers scope, no
+device actions, MDM, erase, unmanage, LAPS or recovery secrets).
+
 `applyScopeMembershipBatch` takes 1 to 150 `{kind, id, action, computerGroupId}`
 operations ([JPM-0010](decisions/JPM-0010-scope-membership-batch-tool.md)) so a
 rollout is reviewed and approved once. Its dry run (the default) validates every
@@ -291,6 +307,15 @@ claude mcp add jamf-platform -- node /absolute/path/to/dist/index.js
 
 Register the read server globally if you like; it cannot write. The write server is
 registered per project (see above).
+
+The read server's credential is bound by the same exclusions as the write server's
+([JPM-0013](decisions/JPM-0013-write-surface-and-permissions.md) decision 6). Because
+`platformRequest` issues any GET the credential allows, the credential is the only boundary
+for secrets: grant the read integration only the read permissions it needs, and never
+device secrets (lock PIN, Recovery lock password, FileVault recovery key, LAPS), enrollment
+invitations, or webhooks. The conventions test cannot see a credential, so this is held by
+the Jamf console and by a startup check if the gateway's token response lists scopes; that
+check is unverified.
 
 ## Conventions
 

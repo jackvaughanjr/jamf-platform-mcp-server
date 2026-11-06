@@ -1,6 +1,7 @@
 # JPM-0012: Create-only tools for scripts and policies, with policies always created disabled
 
-- **Status:** Accepted
+- **Status:** Accepted; decisions 1 and 3 (last sentence) and the no-`scripts:update` clause of
+  7 superseded by [JPM-0013](JPM-0013-write-surface-and-permissions.md). Everything else stands.
 - **Date:** 2026-11-05
 - **Extends:** [JPM-0008](JPM-0008-reversible-writes-as-a-separate-server.md), whose rules
   and single write integration govern these tools. Narrows backlog item 7: configuration

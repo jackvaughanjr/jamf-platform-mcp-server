@@ -78,4 +78,11 @@ The distinction matters because ADRs are immutable and findings are not.
   `createPolicy` on the write server. Every field explicit, unknown fields rejected; policies
   always created disabled with an explicit scope, never all computers; script contents and
   parameter values shown only as SHA-256 and length; packages rejected; verified by
-  read-back. Adds `scripts:create`, `scripts:read` and `categories:read`.
+  read-back. Adds `scripts:create`, `scripts:read` and `categories:read`. Decisions 1 and 3
+  (last sentence) and the no-`scripts:update` clause of 7 superseded by JPM-0013.
+- [JPM-0013](JPM-0013-write-surface-and-permissions.md): The write server's whole reversible
+  surface (scripts, policies, groups, profiles, extension attributes, packages, categories,
+  searches; updates, enable and disable, scope changes) and its complete permission set,
+  decided once and built in phases. Permanent exclusions: no delete, no all-computers scope,
+  no device actions, MDM commands or device secrets, on either server's credential. Supersedes
+  parts of JPM-0008, JPM-0009 and JPM-0012.

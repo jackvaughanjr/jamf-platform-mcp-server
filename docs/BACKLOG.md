@@ -8,7 +8,7 @@ done looks like, so a session starting cold can pick it up.
 out of it. The operator keeps those items in Claude Code's project memory for this
 directory, which a new session loads automatically.
 
-Last reviewed 2026-11-05, after JPM-0012.
+Last reviewed 2026-11-06, after JPM-0013.
 
 ---
 
@@ -65,6 +65,11 @@ here as not reachable, with the reason), tests pass, both servers start and list
 tools, and the CHANGELOG notes the bumps.
 
 ## 7. Add typed create tools for profiles and computer groups
+
+**Closed 2026-11-06 by reference.** [JPM-0013](../decisions/JPM-0013-write-surface-and-permissions.md)
+decides these tools (profile and group create and update, with policy and extension
+attribute updates) and the permission set once; they are built in its phases. The text
+below is kept as history. Item 9, the first live confirmation of the creates, stays open.
 
 **Narrowed 2026-11-05.** Scripts and policies are done by
 [JPM-0012](../decisions/JPM-0012-create-script-and-policy-tools.md) (`createScript`,
