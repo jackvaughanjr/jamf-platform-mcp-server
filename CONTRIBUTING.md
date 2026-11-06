@@ -172,7 +172,8 @@ agent acting for the maintainer inherits his access, which is never a reason to 
   what the request listed and nothing more; he doesn't have to repeat the numbers. If the
   reply could be read more than one way, or names something the request didn't list, the
   agent asks. An approval passed on from another session he's working in comes with the
-  request it answered. A merge needs its own request and approval.
+  request it answered. Approval of an exact change covers the branch, commits, push and PR
+  that carry it. A merge needs its own request and approval.
 - **This repository is public, so a push is publication.** Before every push, and again
   before a merge, check the full diff, every commit message and the PR body for anything that
   doesn't belong in public: secrets, internal hostnames or identifiers, private-environment
