@@ -256,6 +256,36 @@ Scopes are per operation and spelled `{resource}:{verb}`: `restricted-software:r
 `:create`, `:update`, `:delete`. That spelling is unlike the `read:pro:blueprints`
 form noted elsewhere. Do not derive one from the other.
 
+**Script and policy creates, operation pages read 2026-11-05, not yet called**
+([JPM-0012](../decisions/JPM-0012-create-script-and-policy-tools.md)):
+
+| Operation page | Method and path | Permission (as published) |
+|---|---|---|
+| `post_v1-scripts-1` | POST `/pro/v1/scripts` | `scripts:create` |
+| `get_v1-scripts-id-1` | GET `/pro/v1/scripts/{id}` | `scripts:read` |
+| `findscripts-1` | GET `/proclassic/scripts` | `scripts:read` |
+| `findcategoriesbyid-1` | GET `/proclassic/categories/id/{id}` | `categories:read` |
+| `createpolicybyid-1` | POST `/proclassic/policies/id/{id}` (id `0`) | `policies:create` |
+| `findpolicies-1`, `findpoliciesbyid-1` | GET `/proclassic/policies`, `/policies/id/{id}` | `policies:read` |
+
+The script create **publishes its body**: JSON `Script`, `name` required, `info`, `notes`,
+`priority` (`BEFORE`, `AFTER`, `AT_REBOOT`), `categoryId` and `categoryName` (strings),
+`parameter4` to `parameter11`, `osRequirements`, `scriptContents`; ids in the body are
+ignored; 201 returns `HrefResponse {id, href}` with a string id. The policy create publishes
+**no body and no content type**, only `201 Created`, like the other Classic writes; XML
+shaped like the GET schema is sent. The policy GET schema publishes enums for `frequency`
+(the seven Jamf UI values), `retry_event` (`none`, `trigger`, `check-in`, default `none`,
+with `retry_attempts` default `-1`), script `priority` (`Before`, `After`) and
+`network_requirements` (`Any`, `Ethernet`); it also lists `trigger_logout`, which the live
+GET does not return. Confirmed live 2026-11-05 through the read server: Classic `scripts`
+lists as `{scripts: [{id, name}]}`, and `categories/id/{id}` answers
+`{category: {id, name, priority}}`. Every policy in a production tenant export (86,
+2026-11-05) stores the same inert values for the sections a create does not send: no
+date/time or network limitations, `network_requirements` "Any", no packages, `printers`
+as `[""]`, no dock items or accounts, management account "doNotChange", both restart
+options "Do not restart", empty files-and-processes fields, disk encryption "none", no
+deferral and empty user messages. `createPolicy` checks a new policy against that table.
+
 **`patch_policies` is the one key not to trust.** Its page publishes no `xml.name` and
 the key is inferred from the component schema name. Shipping Classic has a long-standing
 quirk of returning `"patch policies"` *with a space* here. Prefer the Jamf Pro API's

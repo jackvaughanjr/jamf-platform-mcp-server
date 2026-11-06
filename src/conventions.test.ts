@@ -129,6 +129,8 @@ describe('the read/write server split', () => {
     expect(source).not.toContain('restricted-software.js');
     expect(source).not.toContain('scope-membership.js');
     expect(source).not.toContain('scope-membership-batch.js');
+    expect(source).not.toContain('create-script.js');
+    expect(source).not.toContain('create-policy.js');
     for (const name of toolNames('src/index.ts')) {
       expect(name, `read server registers ${name}`).not.toMatch(/^(create|update|delete|execute|send|add|remove)/);
     }
@@ -142,25 +144,78 @@ describe('the read/write server split', () => {
       'addComputerGroupToPolicyScope',
       'addComputerGroupToProfileScope',
       'applyScopeMembershipBatch',
+      'createPolicy',
       'createRestrictedSoftware',
+      'createScript',
       'removeComputerGroupFromPolicyScope',
       'removeComputerGroupFromProfileScope',
       'updateRestrictedSoftware',
     ]);
   });
 
-  // Delete is not granted (JPM-0008 part 5); the code should not be able to ask for it either.
-  it('never issues DELETE or PATCH from the write path', () => {
-    for (const file of [
+  // JPM-0012: a policy is created disabled and never all computers. The create rule stands under
+  // JPM-0013 (which supersedes only JPM-0012's no-update-tool clauses): the builder must not be
+  // able to emit anything else, whatever tools are added around it.
+  it('creates policies only disabled and only with all_computers false', () => {
+    const policy = read('src/create-policy.ts');
+    expect(policy).toContain("'    <enabled>false</enabled>'");
+    expect(policy).not.toMatch(/<enabled>\$\{/);
+    expect(policy).toContain("'    <all_computers>false</all_computers>'");
+    expect(policy).not.toMatch(/<all_computers>\$\{/);
+  });
+
+  // JPM-0013 decisions 5 and 6: permanent exclusions, swept over every module that can reach the
+  // write path. No record short of one superseding JPM-0013 may add any of these. The sweep is on
+  // source, so it cannot see the credential; that boundary is the console and, if the token
+  // response supports one, the startup check (JPM-0013 decision 8).
+  describe('permanent exclusions (JPM-0013)', () => {
+    const WRITE_MODULES = [
       'src/write-server.ts',
       'src/restricted-software.ts',
       'src/scope-membership.ts',
       'src/scope-membership-batch.ts',
-    ]) {
-      for (const verb of ['DELETE', 'PATCH']) {
-        expect(read(file), `${file} mentions ${verb}`).not.toContain(`'${verb}'`);
+      'src/create-script.ts',
+      'src/create-policy.ts',
+      'src/secret-material.ts',
+    ];
+
+    // Case-sensitive on purpose: the uppercase tokens are HTTP verbs, while lower-case "delete" and
+    // "patch" are legitimate prose and identifiers here (the "cannot delete" rollback text, Restricted
+    // Software's `deleteExecutable` field, a local `patch` object). Uppercase is how a verb is written.
+    it('never mentions the DELETE or PATCH verbs', () => {
+      for (const file of WRITE_MODULES) {
+        for (const verb of ['DELETE', 'PATCH']) {
+          expect(read(file), `${file} mentions ${verb} (JPM-0013 decision 5)`).not.toMatch(
+            new RegExp(`\\b${verb}\\b`),
+          );
+        }
       }
-    }
+    });
+
+    it('never sends all_computers true', () => {
+      for (const file of WRITE_MODULES) {
+        expect(read(file), `${file} writes all_computers>true`).not.toMatch(/all_computers>\s*true/i);
+      }
+    });
+
+    // Word-bounded and case-insensitive. None of these appears in any write module today, so
+    // nothing is scoped out of the sweep.
+    it('never reaches device actions, MDM commands, erase, unmanage, LAPS or recovery secrets', () => {
+      const excluded: [string, RegExp][] = [
+        ['device-actions', /device-actions/i],
+        ['/mdm', /\/mdm\b/i],
+        ['erase', /\berase/i],
+        ['unmanage', /\bunmanage/i],
+        ['laps', /\blaps\b/i],
+        ['recovery', /\brecovery/i],
+      ];
+      for (const file of WRITE_MODULES) {
+        const source = read(file);
+        for (const [term, pattern] of excluded) {
+          expect(source, `${file} mentions ${term} (JPM-0013 decision 6)`).not.toMatch(pattern);
+        }
+      }
+    });
   });
 });
 

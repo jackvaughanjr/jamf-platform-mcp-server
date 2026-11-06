@@ -8,9 +8,33 @@ done looks like, so a session starting cold can pick it up.
 out of it. The operator keeps those items in Claude Code's project memory for this
 directory, which a new session loads automatically.
 
-Last reviewed 2026-11-05, after JPM-0011.
+Last reviewed 2026-11-06, after JPM-0013.
 
 ---
+
+## 9. Confirm the script and policy creates on their first real write
+
+**Why:** `createScript` and `createPolicy`
+([JPM-0012](../decisions/JPM-0012-create-script-and-policy-tools.md)) have only been tested
+against fixtures. The script create's JSON body is published; the policy create's XML body
+is not (`createpolicybyid-1` documents only `201`). Unverified until a live create: that
+Jamf accepts `<category><id>` alone, `<retry_event>check-in`, the `<size>` element in
+`<scripts>`, and `categoryId "-1"` for a script with no category; the shape of the policy
+create response (`<policy><id>N</id></policy>` is assumed, with a by-name fallback); and
+both read-back parsers and the inert-value table against a newly created object rather
+than exports of old ones.
+
+**How:** as item 1: never write to test. On the first script and policy that are actually
+needed, dry-run, review, create, and check `verification.verified` is `true` with no
+`mismatches`. A mismatch on an inert-value check means Jamf stored a different default for
+a new policy: read it in the console before changing the table. The created policy is
+disabled, so a wrong body cannot reach a Mac.
+
+**Done when:** the outcome is recorded in `docs/gateway-reference.md` (Script and policy
+creates): the date, whether each body was accepted as sent, the create response shape,
+and any read-back mismatch with how it was resolved (counts and field names only, never a
+hidden value); the README's "not yet called live" line and the CHANGELOG are updated; and,
+if a format was wrong, the builder and its tests are fixed first.
 
 ## 8. Clear the npm audit findings in the runtime dependencies
 
@@ -40,13 +64,24 @@ a live read handshake on both servers. Decide separately whether to move
 here as not reachable, with the reason), tests pass, both servers start and list their
 tools, and the CHANGELOG notes the bumps.
 
-## 7. Add typed create tools for profiles, policies and computer groups
+## 7. Add typed create tools for profiles and computer groups
 
-**Why:** the write server can change scope but cannot create anything, so the
+**Closed 2026-11-06 by reference.** [JPM-0013](../decisions/JPM-0013-write-surface-and-permissions.md)
+decides these tools (profile and group create and update, with policy and extension
+attribute updates) and the permission set once; they are built in its phases. The text
+below is kept as history. Item 9, the first live confirmation of the creates, stays open.
+
+**Narrowed 2026-11-05.** Scripts and policies are done by
+[JPM-0012](../decisions/JPM-0012-create-script-and-policy-tools.md) (`createScript`,
+`createPolicy`; first live create tracked in item 9). Configuration profiles and computer
+groups remain, below.
+
+**Why:** the write server can change scope but cannot create a profile or a group, so the
 JPM-0009 canary gate (item 6) needs the operator to make its throwaway profile and
 policy by hand in the console. The write integration already holds `:create` on
 configuration profiles, policies and device groups, unused by operator decision
-(JPM-0009), so the credential is not the blocker; a reviewed tool is.
+(JPM-0009), so the credential is not the blocker; a reviewed tool is. (Policies no longer
+need one: JPM-0012.)
 
 **How:** a new ADR first, then typed tools in `src/write-server.ts` only, copying the
 existing write shape: no defaults, `dryRun` true by default, verify by read-back, and a
@@ -143,7 +178,7 @@ passthrough offers no write verbs. The write server's tool list is pinned only b
 `src/conventions.test.ts`, which reads source, not by what a client actually sees.
 
 **Done when:** CI also starts `dist/write-server.js` with fixture credentials and fails
-unless `tools/list` returns exactly the seven reviewed write tools (see
+unless `tools/list` returns exactly the nine reviewed write tools (see
 `src/conventions.test.ts`). Low priority: the source-level test already holds the
 list.
 

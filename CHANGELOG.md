@@ -51,6 +51,33 @@ guarantee.
 
 ### Added
 
+- [JPM-0013](decisions/JPM-0013-write-surface-and-permissions.md), Proposed: the write server's
+  whole reversible surface (scripts, policies, groups, profiles, extension attributes, packages,
+  categories, searches) and its complete permission set, decided once and built in phases. No
+  tool is added by this change (still nine). Permanent exclusions on both integrations: no
+  delete, no all-computers scope, no device actions, MDM commands or device secrets. Supersedes
+  parts of JPM-0008, JPM-0009 and JPM-0012; JPM-0012's Status line now says which.
+- `src/conventions.test.ts` sweeps the write modules for those exclusions (no `DELETE` or
+  `PATCH` verb, no `all_computers>true`, none of `device-actions`, `/mdm`, erase, unmanage, LAPS
+  or recovery), and asserts `create-policy.ts` still emits only `<enabled>false</enabled>` and
+  `<all_computers>false</all_computers>`. It no longer forbids an update path, which JPM-0013
+  allows in later phases.
+- `createScript` and `createPolicy` on the write server
+  ([JPM-0012](decisions/JPM-0012-create-script-and-policy-tools.md)), so a script and the
+  policy that runs it can be created with every descriptive field filled in, rather than
+  clicked into the console and described by hand. Create only: no update, enable or delete.
+  Every field is stated and unknown fields are rejected; a name that already exists is
+  refused. `createScript` posts the published JSON `Script` to `/pro/v1/scripts`.
+  `createPolicy` posts XML to `/proclassic/policies/id/0`, always **disabled** (no `enabled`
+  input), with an explicit scope of computer and computer group ids (never all computers;
+  empty only with `emptyScopeIntended: true`), ordered scripts with all eight parameters,
+  `recon`, and Self Service; packages are rejected. Script contents and every parameter
+  value are shown only as SHA-256 and length in dry runs, results, errors and logs, and a
+  failed write's response body is scrubbed of them. A live create reads the object back and
+  compares every field sent; a policy is also checked for inert defaults in what was not
+  sent. The write integration needs `scripts:create`, `scripts:read` and `categories:read`
+  in addition to what it holds. Unverified live: the policy XML body (Jamf publishes none)
+  and both read-back parsers (BACKLOG item 9).
 - `applyScopeMembershipBatch`, a fifth scope-membership tool
   ([JPM-0010](decisions/JPM-0010-scope-membership-batch-tool.md)), amending JPM-0009's
   rejection of a batch tool. Takes 1 to 150 add/remove operations across profiles and
