@@ -25,12 +25,18 @@ describe('ADR conventions', () => {
     expect(adrFiles.length).toBeGreaterThan(0);
   });
 
+  // A number held for a record drafted on another branch, so a later record can be
+  // numbered without waiting for it to land. JPM-0015 and JPM-0016 are held by records on
+  // unmerged branches. Remove an entry once its record is committed here.
+  const RESERVED_ADR_NUMBERS: readonly number[] = [15, 16];
+
   it('uses the JPM- prefix and four-digit sequential numbering with no gaps', () => {
     const numbers = adrFiles.map((f) => {
       expect(f).toMatch(/^JPM-\d{4}-/);
       return Number(f.slice(4, 8));
     });
-    expect(numbers).toEqual(numbers.map((_, i) => i + 1));
+    const held = [...new Set([...numbers, ...RESERVED_ADR_NUMBERS])].sort((a, b) => a - b);
+    expect(held).toEqual(held.map((_, i) => i + 1));
   });
 
   // An index that silently omits a record is worse than no index — a reader
@@ -132,6 +138,8 @@ describe('the read/write server split', () => {
     expect(source).not.toContain('scope-changes.js');
     expect(source).not.toContain('create-script.js');
     expect(source).not.toContain('create-policy.js');
+    expect(source).not.toContain('flush-policy-logs.js');
+    expect(source).not.toContain('write-route-guard.js');
     for (const name of toolNames('src/index.ts')) {
       expect(name, `read server registers ${name}`).not.toMatch(/^(create|update|delete|execute|send|add|remove)/);
     }
@@ -149,6 +157,7 @@ describe('the read/write server split', () => {
       'createPolicy',
       'createRestrictedSoftware',
       'createScript',
+      'flushPolicyLogs',
       'removeComputerGroupFromPolicyScope',
       'removeComputerGroupFromProfileScope',
       'updateRestrictedSoftware',
@@ -180,19 +189,47 @@ describe('the read/write server split', () => {
       'src/create-script.ts',
       'src/create-policy.ts',
       'src/secret-material.ts',
+      'src/flush-policy-logs.ts',
+      'src/write-route-guard.ts',
     ];
+
+    // JPM-0017: the one DELETE the write server sends is the policy-log flush, and only these
+    // two modules may name the verb. Everything else stays DELETE-free.
+    const DELETE_ALLOWED = ['src/flush-policy-logs.ts', 'src/write-route-guard.ts'];
 
     // Case-sensitive on purpose: the uppercase tokens are HTTP verbs, while lower-case "delete" and
     // "patch" are legitimate prose and identifiers here (the "cannot delete" rollback text, Restricted
     // Software's `deleteExecutable` field, a local `patch` object). Uppercase is how a verb is written.
-    it('never mentions the DELETE or PATCH verbs', () => {
+    it('never mentions the PATCH verb, nor DELETE outside the log-flush modules', () => {
       for (const file of WRITE_MODULES) {
-        for (const verb of ['DELETE', 'PATCH']) {
-          expect(read(file), `${file} mentions ${verb} (JPM-0013 decision 5)`).not.toMatch(
-            new RegExp(`\\b${verb}\\b`),
-          );
-        }
+        expect(read(file), `${file} mentions PATCH (JPM-0013 decision 5)`).not.toMatch(/\bPATCH\b/);
+        if (DELETE_ALLOWED.includes(file)) continue;
+        expect(read(file), `${file} mentions DELETE (JPM-0013 decision 5, JPM-0017)`).not.toMatch(/\bDELETE\b/);
       }
+    });
+
+    // The flush module sends DELETE from one builder, and only to logflush routes.
+    it('sends DELETE only to logflush routes, from one builder', () => {
+      const source = read('src/flush-policy-logs.ts');
+      expect(source.match(/method: 'DELETE'/g), 'flush-policy-logs.ts DELETE requests').toHaveLength(2);
+      const start = source.indexOf('export function buildFlushRequest(');
+      expect(start, 'buildFlushRequest not found').toBeGreaterThan(-1);
+      const builder = source.slice(start, source.indexOf('\n}\n', start));
+      expect(builder.match(/method: 'DELETE'/g), 'DELETE outside buildFlushRequest').toHaveLength(2);
+      const resources = [...builder.matchAll(/resource: [`']([^`']*)[`']/g)].map((m) => m[1]);
+      expect(resources).toHaveLength(2);
+      for (const resource of resources) expect(resource, 'a DELETE route that is not logflush').toMatch(/^logflush\b/);
+      expect(source, 'the all-policies flush route').not.toMatch(/logflush\/policy\/interval/);
+    });
+
+    // Every request the write server makes passes the route guard (JPM-0017).
+    it('runs the write server on the route-guarded client', () => {
+      const server = read('src/write-server.ts');
+      expect(server).toContain('new WriteRouteGuardClient(config)');
+      expect(server).not.toContain('new JamfPlatformClient(');
+      const guard = read('src/write-route-guard.ts');
+      expect(guard).toMatch(/class WriteRouteGuardClient extends JamfPlatformClient/);
+      expect(guard).toContain('assertWriteServerRequestAllowed(options);\n    return super.request');
     });
 
     it('never sends all_computers true', () => {

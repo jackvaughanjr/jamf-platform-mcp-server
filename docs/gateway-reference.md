@@ -301,6 +301,28 @@ as `[""]`, no dock items or accounts, management account "doNotChange", both res
 options "Do not restart", empty files-and-processes fields, disk encryption "none", no
 deferral and empty user messages. `createPolicy` checks a new policy against that table.
 
+**Policy log flush, operation pages read 2026-11-10, not yet called**
+([JPM-0017](../decisions/JPM-0017-flush-policy-logs.md)). All under `proclassic`, no version,
+each needing `flush-policy-logs:execute`:
+
+| Operation page | Method and path | Flushes |
+|---|---|---|
+| `logflush-2` | DELETE `/logflush`, body `application/xml` | one policy, the computers listed in the body |
+| `createlogflushwithidandinterval-1` | DELETE `/logflush/{log}/id/{id}/interval/{interval}` | one policy, every computer |
+| `createlogflushforinterval-1` | DELETE `/logflush/{log}/interval/{interval}` | every policy (never called by this project) |
+
+`{log}` is an enum of one value, `policy`, although the path pages' example text says
+`policies`. The body schema is `logflush {log: "policy", log_id, interval, computers: {computer:
+{id}}}`, `computers` optional, no mobile devices. `interval` is one of 20 values,
+`Zero`/`One`/`Two`/`Three`/`Six` × `Days`/`Weeks`/`Months`/`Years` ("One Days" as published),
+written `Three+Months` in a path. Each page documents only `200 OK`. Jamf's permissions map adds
+that `/logflush` also accepts `policies:delete`, which would also authorise deleting any policy;
+the write integration holds `flush-policy-logs:execute` instead. A policy's log for one computer
+is read with GET `/computerhistory/id/{id}/subset/PolicyLogs` (`device-history:read`): items
+`policy_log {policy_id, policy_name, username, date_time, status}`. Unverified until the first
+flush: that the gateway forwards a DELETE with a body, the body element names, whether
+`<computers>` is honoured, the `+` path spelling, and the success status.
+
 **`patch_policies` is the one key not to trust.** Its page publishes no `xml.name` and
 the key is inferred from the component schema name. Shipping Classic has a long-standing
 quirk of returning `"patch policies"` *with a space* here. Prefer the Jamf Pro API's

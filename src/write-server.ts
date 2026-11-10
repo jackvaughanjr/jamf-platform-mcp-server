@@ -4,7 +4,6 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 import { asContent, asError, packageVersion, requireConfig } from './mcp-common.js';
-import { JamfPlatformClient } from './platform-client.js';
 import {
   createRestrictedSoftware,
   generalCreateSchema,
@@ -24,6 +23,8 @@ import { applyScopeMembershipBatch, scopeMembershipBatchInputSchema } from './sc
 import { applyScopeChanges, scopeChangesInputSchema } from './scope-changes.js';
 import { createScript, createScriptInputSchema } from './create-script.js';
 import { createPolicy, createPolicyInputSchema } from './create-policy.js';
+import { flushPolicyLogs, flushPolicyLogsInputSchema } from './flush-policy-logs.js';
+import { WriteRouteGuardClient } from './write-route-guard.js';
 
 /**
  * The write server (JPM-0008). Registers write tools and nothing else: no
@@ -38,16 +39,22 @@ import { createPolicy, createPolicyInputSchema } from './create-policy.js';
  * well as computer groups, as targets or exclusions, and
  * createScript and createPolicy (JPM-0012, src/create-script.ts, src/create-policy.ts):
  * create only, every field explicit, policies always disabled, script contents and
- * parameter values shown as hashes only.
+ * parameter values shown as hashes only, and
+ * flushPolicyLogs (JPM-0017, src/flush-policy-logs.ts): flush one policy's log for listed
+ * computers or all computers, the only HTTP delete-method request this server sends.
+ *
+ * Every request goes through WriteRouteGuardClient (src/write-route-guard.ts), which refuses
+ * any delete-method request other than that policy-log flush, and any other method but GET,
+ * POST and PUT, before anything is sent (JPM-0017).
  *
  * Runs under its own Jamf integration, whose complete permission set JPM-0013 decision 8
- * fixes (never any delete, never device reads), and is registered per project, not
+ * fixes, amended by JPM-0017 for the log flush (never any object delete, never device reads), and is registered per project, not
  * globally, so its tools appear only where the Jamf change log lives.
  */
 
 const config = requireConfig();
 const ctx: WriteContext = {
-  client: new JamfPlatformClient(config),
+  client: new WriteRouteGuardClient(config),
   writesEnabled: !config.readOnly,
 };
 
@@ -294,6 +301,33 @@ server.registerTool(
   async (input) => {
     try {
       return asContent(await createPolicy(ctx, input));
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+server.registerTool(
+  'flushPolicyLogs',
+  {
+    title: "Flush one policy's log, for listed computers or all computers",
+    description:
+      'WRITES TO JAMF PRO when dryRun is false, and CANNOT BE UNDONE. Flushes the log of one policy so that a policy ' +
+      'whose frequency limits it ("Once per computer") can run again on those Macs. Every field is stated: policyId; ' +
+      'computers as EITHER {"computerIds": [1 to 100 ids]} OR {"allComputers": true}, never inferred; and interval, ' +
+      'one of [Zero, One, Two, Three, Six] x [Days, Weeks, Months, Years] ("Zero Days" flushes every entry). Listed ' +
+      'computers use Classic /logflush with an XML body; all computers use ' +
+      '/logflush/policy/id/{id}/interval/{interval}. Flushing every policy at once is not offered. A dry run (the ' +
+      'default) reads the policy, shows its frequency, state and scope counts, the exact request and a planHash; a ' +
+      'live call requires that planHash. Computer ids are NOT checked (no device read on this server), and this ' +
+      'server cannot read policy logs, so the flush itself is never reported verified: the result gives the ' +
+      'read-server calls that confirm it, and reads the policy back to check it still exists unchanged. A request ' +
+      'Jamf rejects is reported NOT flushed. No rollback exists; the result says what follows from the flush.',
+    inputSchema: flushPolicyLogsInputSchema,
+  },
+  async (input) => {
+    try {
+      return asContent(await flushPolicyLogs(ctx, input));
     } catch (error) {
       return asError(error);
     }

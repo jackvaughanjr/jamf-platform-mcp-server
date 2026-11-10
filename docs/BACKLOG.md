@@ -8,9 +8,33 @@ done looks like, so a session starting cold can pick it up.
 out of it. The operator keeps those items in Claude Code's project memory for this
 directory, which a new session loads automatically.
 
-Last reviewed 2026-11-09, after JPM-0014.
+Last reviewed 2026-11-10, after JPM-0017.
 
 ---
+
+## 11. Confirm `flushPolicyLogs` on its first real flush
+
+**Why:** [JPM-0017](../decisions/JPM-0017-flush-policy-logs.md)'s tool sends two Classic
+`logflush` requests read from Jamf's operation pages and never called by this code. Unknown:
+whether the gateway forwards a DELETE with a body; whether Jamf accepts the body as built (the
+element `log`, the interval text) and honours `<computers>`, or flushes more than listed; the
+`+` spelling of the interval in the path; the success status; what "Zero Days" flushes exactly;
+and whether a flush changes the policy as read (the tool reads it back).
+
+**How:** never flush to test. On the first real staged re-run, with `flush-policy-logs:execute`
+granted to the write integration (and not `policies:delete`): pick a policy where flushing every
+computer's entry would also have been acceptable, in case `<computers>` is ignored. Before the
+call, run the dry run's read-server checks for the test Mac and for one other Mac with an entry
+for the policy. Dry-run, review, flush the one test Mac with `"Zero Days"`. Then re-run both
+checks: the test Mac should have no entry for the policy and the other Mac should keep its entry.
+Confirm the policy read back unchanged. Later, flush the rest the same way, or with
+`allComputers` if that was the plan.
+
+**Done when:** `docs/gateway-reference.md` (Policy log flush) records the date and outcome of
+the first listed-computer flush and, separately, the first all-computers flush: accepted as sent,
+the status, whether only the listed Mac lost its entry, and whether the policy read back
+unchanged. The README's "Not yet called live" line and the CHANGELOG are updated, and the builder
+and its tests are fixed first if a format was wrong.
 
 ## 10. Confirm `applyScopeChanges` on its first real computer and exclusion writes
 
@@ -198,7 +222,7 @@ passthrough offers no write verbs. The write server's tool list is pinned only b
 `src/conventions.test.ts`, which reads source, not by what a client actually sees.
 
 **Done when:** CI also starts `dist/write-server.js` with fixture credentials and fails
-unless `tools/list` returns exactly the ten reviewed write tools (see
+unless `tools/list` returns exactly the eleven reviewed write tools (see
 `src/conventions.test.ts`). Low priority: the source-level test already holds the
 list.
 
