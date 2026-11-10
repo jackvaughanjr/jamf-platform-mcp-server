@@ -98,6 +98,11 @@ beforeEach(() => {
       if (!g) return res('not found', 404);
       return res({ computer_group: { id: Number(group[1]), name: g.name, is_smart: g.isSmart } });
     }
+    // The policy list, which the engine reads to refuse a policy whose name is shared (JPM-0014).
+    if (/\/policies$/.test(u)) {
+      const policies = [...store.entries()].filter(([, v]) => v.kind === 'policy');
+      return res({ policies: policies.map(([k]) => ({ id: Number(k.split(':')[1]), name: k })) });
+    }
     const obj = u.match(/(osxconfigurationprofiles|policies)\/id\/(\d+)/);
     if (!obj) return res('unexpected', 500);
     const key = `${obj[1] === 'policies' ? 'policy' : 'profile'}:${obj[2]}`;
@@ -384,7 +389,7 @@ describe('live run', () => {
       op('profile', 501, 'remove', 902),
     ]);
     // One stderr line per object written; stdout is the transport.
-    const lines = (console.error as any).mock.calls.filter((c: unknown[]) => /batch: set computer group scope/.test(String(c[0])));
+    const lines = (console.error as any).mock.calls.filter((c: unknown[]) => /batch: set scope of/.test(String(c[0])));
     expect(lines).toHaveLength(3);
     expect(JSON.stringify(out)).not.toContain('payloads');
     expect(JSON.stringify(out)).not.toContain(SECRET_MARKER);
@@ -412,18 +417,20 @@ describe('live run', () => {
       return (await live(standardOps(), planHash)) as Record<string, any>;
     }
 
-    it('a PUT error stops the batch; later objects are notAttempted and the rollback covers only sent PUTs', async () => {
+    // JPM-0014 amends JPM-0010 here: a PUT Jamf answers with an HTTP error is not a write,
+    // so its object is kept out of the rollback and listed under notWritten instead.
+    it('a PUT error stops the batch; later objects are notAttempted and the rejected object is not in the rollback', async () => {
       const out = await run(() => putFailsFor.add('profile:502'));
       expect(out.ok).toBe(false);
       expect(out.objects.map((o: any) => o.status)).toEqual(['written', 'failed', 'notAttempted']);
-      expect(out.objects[1].error).toMatch(/PUT failed/);
+      expect(out.objects[1].error).toMatch(/PUT failed: Jamf answered HTTP 500/);
+      expect(out.objects[1]).toMatchObject({ rejectedWithHttpStatus: 500, writtenAt: null });
       expect(out.objects[2]).toMatchObject({ writtenAt: null, verified: null });
       expect(puts()).toHaveLength(2);
-      expect(out.totals).toMatchObject({ written: 1, failed: 1, notAttempted: 1 });
-      expect(out.rollback.operations).toEqual([
-        op('profile', 502, 'add', 903),
-        op('profile', 501, 'add', 901),
-        op('profile', 501, 'remove', 902),
+      expect(out.totals).toMatchObject({ written: 1, failed: 1, notAttempted: 1, rejectedByJamf: 1 });
+      expect(out.rollback.operations).toEqual([op('profile', 501, 'add', 901), op('profile', 501, 'remove', 902)]);
+      expect(out.rollback.notWritten).toEqual([
+        { kind: 'profile', id: 502, httpStatus: 500, inverseOperationsIfItLanded: [op('profile', 502, 'add', 903)] },
       ]);
       expect(out.rollback.operations.some((o: Op) => o.kind === 'policy')).toBe(false);
     });

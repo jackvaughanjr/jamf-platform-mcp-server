@@ -21,6 +21,7 @@ import {
   scopeMembershipInputSchema,
 } from './scope-membership.js';
 import { applyScopeMembershipBatch, scopeMembershipBatchInputSchema } from './scope-membership-batch.js';
+import { applyScopeChanges, scopeChangesInputSchema } from './scope-changes.js';
 import { createScript, createScriptInputSchema } from './create-script.js';
 import { createPolicy, createPolicyInputSchema } from './create-policy.js';
 
@@ -32,15 +33,16 @@ import { createPolicy, createPolicyInputSchema } from './create-policy.js';
  * Tools: createRestrictedSoftware, updateRestrictedSoftware (JPM-0008), and
  * addComputerGroupToProfileScope, removeComputerGroupFromProfileScope, addComputerGroupToPolicyScope, removeComputerGroupFromPolicyScope (JPM-0009, src/scope-membership.ts),
  * applyScopeMembershipBatch (JPM-0010, src/scope-membership-batch.ts): many of those
- * operations as one reviewed plan, bound to a live run by a plan hash, and
+ * operations as one reviewed plan, bound to a live run by a plan hash,
+ * applyScopeChanges (JPM-0014, src/scope-changes.ts): the same engine, for computers as
+ * well as computer groups, as targets or exclusions, and
  * createScript and createPolicy (JPM-0012, src/create-script.ts, src/create-policy.ts):
  * create only, every field explicit, policies always disabled, script contents and
  * parameter values shown as hashes only.
  *
- * Runs under its own Jamf integration — restricted-software read/create/update,
- * configuration-profiles read/update, policies read/create/update, device-groups read,
- * scripts read/create, categories read; never delete — and is registered per project,
- * not globally, so its tools appear only where the Jamf change log lives.
+ * Runs under its own Jamf integration, whose complete permission set JPM-0013 decision 8
+ * fixes (never any delete, never device reads), and is registered per project, not
+ * globally, so its tools appear only where the Jamf change log lives.
  */
 
 const config = requireConfig();
@@ -216,6 +218,36 @@ server.registerTool(
   async (input) => {
     try {
       return asContent(await applyScopeMembershipBatch(ctx, input));
+    } catch (error) {
+      return asError(error);
+    }
+  },
+);
+
+server.registerTool(
+  'applyScopeChanges',
+  {
+    title: 'Apply a reviewed batch of scope changes: computers or groups, targets or exclusions',
+    description:
+      'WRITES TO JAMF PRO when dryRun is false. Applies 1 to 150 operations, each adding or removing one computer group ' +
+      'or one computer, in the targets (list "include") or the exclusions (list "exclude") of one macOS configuration ' +
+      'profile or policy, as ONE reviewed plan. Every operation states kind, id, action, member ("computerGroup" with ' +
+      'computerGroupId, or "computer" with computerId) and list; nothing defaults. Operations are grouped by object and ' +
+      'each object gets a single PUT carrying its final scope. Refuses: a group that does not exist, an add of a member ' +
+      'already in that list, a remove of one that is not, the same member added to both lists, a change that leaves ' +
+      'every target also excluded, All Computers, scope members this tool does not model, a profile whose ' +
+      'redeploy_on_update is not exactly "Newly Assigned", and a policy whose name another policy shares. Computer ids ' +
+      'are NOT checked before the write: confirm them with the read server first. If any operation is refused, the dry ' +
+      'run returns every refusal and no planHash. A dry run (the default) returns per-object before/after for every ' +
+      'affected list, totals and a planHash. A live call requires that planHash and writes nothing if any listed object ' +
+      'or group changed since. Objects are written in order, each read back and verified (scope and a non-scope ' +
+      'fingerprint); the first failure stops the batch. A PUT Jamf answers with an HTTP error is reported NOT written ' +
+      'and is not read back. The result carries a rollback: the inverse operations, as a dry run to be reviewed first.',
+    inputSchema: scopeChangesInputSchema,
+  },
+  async (input) => {
+    try {
+      return asContent(await applyScopeChanges(ctx, input));
     } catch (error) {
       return asError(error);
     }

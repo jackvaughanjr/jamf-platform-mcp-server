@@ -252,6 +252,21 @@ profile was first created) is unknown. A whole-object fingerprint therefore repo
 difference in `general`. See
 [JPM-0011](../decisions/JPM-0011-accept-jamf-payload-identifier-normalization.md).
 
+**A rejected Classic PUT can read back as applied (observed once).** A scope-only
+`PUT /policies/id/{id}` was answered `409 Conflict` and was not saved, yet GETs of that policy for
+about ten minutes afterwards returned the new scope. The likeliest cause of the 409 is that
+another policy had exactly the same name: Jamf allows duplicate policy names at create, but its
+Classic API appears to reject an update to such a policy. Not confirmed. Two consequences for
+any writer: a non-2xx answer means not written, whatever a read shows next, and a read-back
+taken straight after a rejection proves nothing. See
+[JPM-0014](../decisions/JPM-0014-computers-and-exclusions-in-scope-changes.md).
+
+**Computer targets and exclusions (JPM-0014), not yet written live.** The scope-only body
+carries `computers` and `computer_groups` under both `scope` and `scope.exclusions`, each as
+`<computer><id>N</id></computer>` items, the shape the canary round-tripped for a computer
+target. The policy list read for the shared-name check is GET `/policies`
+(`policies:read`).
+
 Scopes are per operation and spelled `{resource}:{verb}`: `restricted-software:read`,
 `:create`, `:update`, `:delete`. That spelling is unlike the `read:pro:blueprints`
 form noted elsewhere. Do not derive one from the other.

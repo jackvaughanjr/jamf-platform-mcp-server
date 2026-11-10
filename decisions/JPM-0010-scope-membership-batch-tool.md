@@ -2,7 +2,9 @@
 
 - **Status:** Accepted; the non-scope verification rule for configuration profiles
   superseded in part by
-  [JPM-0011](JPM-0011-accept-jamf-payload-identifier-normalization.md).
+  [JPM-0011](JPM-0011-accept-jamf-payload-identifier-normalization.md); the rollback rule for a
+  PUT that Jamf answers with an HTTP error superseded by
+  [JPM-0014](JPM-0014-computers-and-exclusions-in-scope-changes.md).
 - **Date:** 2026-11-05
 - **Amends:** the "A batch tool" alternative in
   [JPM-0009](JPM-0009-computer-group-scope-membership-tools.md), which rejected it. The
