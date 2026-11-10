@@ -76,6 +76,8 @@ export interface MembershipScope extends ScopeTargets {
 
 export interface LiveScopedObject {
   id: number;
+  /** `general.name`, when it is a string. Used to check a policy's name is unique (JPM-0014). */
+  name?: string;
   scope: MembershipScope;
   /** Non-empty scope members this module does not model, by path. */
   unmodelledScope: string[];
@@ -150,6 +152,7 @@ export function parseLiveScoped(body: unknown, kind: ScopeKind, id: number): Liv
 
   return {
     id,
+    name: typeof general.name === 'string' ? general.name : undefined,
     scope: { allComputers, ...inclusions, exclusions },
     unmodelledScope: unmodelled,
     redeployOnUpdate: typeof general.redeploy_on_update === 'string' ? general.redeploy_on_update : undefined,

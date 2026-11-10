@@ -86,3 +86,9 @@ The distinction matters because ADRs are immutable and findings are not.
   decided once and built in phases. Permanent exclusions: no delete, no all-computers scope,
   no device actions, MDM commands or device secrets, on either server's credential. Supersedes
   parts of JPM-0008, JPM-0009 and JPM-0012.
+- [JPM-0014](JPM-0014-computers-and-exclusions-in-scope-changes.md): `applyScopeChanges`, the
+  JPM-0010 engine for computers as well as computer groups, as targets or exclusions, on
+  profiles and policies; every operation states `member` and `list`, nothing defaults, and
+  `applyScopeMembershipBatch` becomes a second input format over the same engine. A PUT Jamf
+  answers with an HTTP error is never a write: not read back, not in the rollback. Refuses a
+  policy whose name another policy shares. Supersedes JPM-0010's rollback rule for such a PUT.

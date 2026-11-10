@@ -31,6 +31,15 @@ guarantee.
 
 ### Changed
 
+- `applyScopeMembershipBatch` now runs on the engine `applyScopeChanges` uses
+  ([JPM-0014](decisions/JPM-0014-computers-and-exclusions-in-scope-changes.md)). Its input,
+  dry-run table and refusal format are unchanged. What changes: a PUT that Jamf answers with an
+  HTTP error is reported not written (`rejectedWithHttpStatus`), is not read back, and is left
+  out of `rollback.operations` and listed under `rollback.notWritten` instead, because reads
+  were seen to show a rejected change for minutes afterwards; a PUT with no HTTP response stays
+  in the rollback as before. Totals gain `rejectedByJamf`. A policy whose name another policy
+  shares is refused, and the policy list is read once when a batch has a policy. The stderr line
+  per object is reworded. Supersedes JPM-0010's rollback rule for such a PUT.
 - Scope-membership verification accepts Jamf's own normalisation of a configuration
   profile ([JPM-0011](decisions/JPM-0011-accept-jamf-payload-identifier-normalization.md)).
   After a scope-only PUT Jamf was seen regenerating the `PayloadUUID` and
@@ -51,6 +60,15 @@ guarantee.
 
 ### Added
 
+- `applyScopeChanges` on the write server
+  ([JPM-0014](decisions/JPM-0014-computers-and-exclusions-in-scope-changes.md); the
+  JPM-0013 tool, for profiles and policies): add or remove a computer group or a computer, as a
+  target or an exclusion, as one reviewed plan with a plan hash, one PUT per object, read-back
+  verification, stop on first failure and an inverse rollback. Every operation states `member`
+  and `list`; nothing defaults. New refusals: the same member added to the targets and the
+  exclusions in one plan, a change after which every target is also excluded, and a policy whose
+  name another policy shares. Computer ids are not checked before the write (no device read
+  permission, JPM-0013); the dry run warns. Ten write tools. Unverified live.
 - [JPM-0013](decisions/JPM-0013-write-surface-and-permissions.md), Proposed: the write server's
   whole reversible surface (scripts, policies, groups, profiles, extension attributes, packages,
   categories, searches) and its complete permission set, decided once and built in phases. No

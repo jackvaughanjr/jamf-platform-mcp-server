@@ -129,6 +129,7 @@ describe('the read/write server split', () => {
     expect(source).not.toContain('restricted-software.js');
     expect(source).not.toContain('scope-membership.js');
     expect(source).not.toContain('scope-membership-batch.js');
+    expect(source).not.toContain('scope-changes.js');
     expect(source).not.toContain('create-script.js');
     expect(source).not.toContain('create-policy.js');
     for (const name of toolNames('src/index.ts')) {
@@ -143,6 +144,7 @@ describe('the read/write server split', () => {
     ).toEqual([
       'addComputerGroupToPolicyScope',
       'addComputerGroupToProfileScope',
+      'applyScopeChanges',
       'applyScopeMembershipBatch',
       'createPolicy',
       'createRestrictedSoftware',
@@ -174,6 +176,7 @@ describe('the read/write server split', () => {
       'src/restricted-software.ts',
       'src/scope-membership.ts',
       'src/scope-membership-batch.ts',
+      'src/scope-changes.ts',
       'src/create-script.ts',
       'src/create-policy.ts',
       'src/secret-material.ts',

@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-469%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-494%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -17,11 +17,12 @@ read-only integration cannot mutate a fleet no matter what this code does. See
 [JPM-0001](decisions/JPM-0001-target-platform-api-gateway.md).
 
 A second, optional server built from the same code makes a deliberately narrow set
-of reversible writes, today Restricted Software create and update, computer group
-scope changes, and script and (always disabled) policy creation, under its own
+of reversible writes, today Restricted Software create and update, scope changes on
+profiles and policies (computers and computer groups, as targets or exclusions), and
+script and (always disabled) policy creation, under its own
 credential ([JPM-0008](decisions/JPM-0008-reversible-writes-as-a-separate-server.md)).
 [JPM-0013](decisions/JPM-0013-write-surface-and-permissions.md) decides the write server's
-whole intended surface and permission set once; the tools it lists beyond today's nine are
+whole intended surface and permission set once; the tools it lists beyond today's ten are
 built in phases. The read server never gains a write tool.
 Canonical location: `github.com/jackvaughanjr/jamf-platform-mcp-server`.
 
@@ -59,10 +60,11 @@ Related work worth knowing about:
 ```
 src/
   index.ts              read server: tool registration, stdio transport
-  write-server.ts       write server (JPM-0008 to JPM-0012): the nine write tools, nothing else
+  write-server.ts       write server (JPM-0008 to JPM-0014): the ten write tools, nothing else
   restricted-software.ts  write logic: scope rules, XML, diff, read-back, rollback
   scope-membership.ts   write logic: add/remove one computer group in a profile or policy scope
-  scope-membership-batch.ts  write logic: many of those as one reviewed plan (plan hash, one PUT per object)
+  scope-changes.ts      write logic: the scope-change engine (plan hash, one PUT per object) and applyScopeChanges: computers or groups, targets or exclusions (JPM-0014)
+  scope-membership-batch.ts  write logic: applyScopeMembershipBatch, group targets only, as an input format over that engine
   create-script.ts      write logic: create one script (Jamf Pro API JSON), contents hashed (JPM-0012)
   create-policy.ts      write logic: create one policy, always disabled, explicit scope, parameters hashed (JPM-0012)
   secret-material.ts    hashing and error scrubbing for values the create tools never echo
@@ -142,6 +144,7 @@ tools (`addComputerGroupToProfileScope`, `removeComputerGroupFromProfileScope`,
 `addComputerGroupToPolicyScope`, `removeComputerGroupFromPolicyScope`,
 [JPM-0009](decisions/JPM-0009-computer-group-scope-membership-tools.md)), and
 `applyScopeMembershipBatch` ([JPM-0010](decisions/JPM-0010-scope-membership-batch-tool.md)),
+`applyScopeChanges` ([JPM-0014](decisions/JPM-0014-computers-and-exclusions-in-scope-changes.md)),
 and `createScript` and `createPolicy`
 ([JPM-0012](decisions/JPM-0012-create-script-and-policy-tools.md)), nothing else.
 The restricted-software read path is confirmed live against real entries, and
@@ -150,7 +153,8 @@ do not publish, and the read-back verified. **Create has not yet been called.** 
 scope tools passed their first-use canary on 2026-11-05 (JPM-0009; see
 [docs/gateway-reference.md](docs/gateway-reference.md)): scope-only PUTs are accepted,
 leave everything else untouched, and did not redistribute a profile. The batch tool
-sends the same scope-only PUT, one per object, but has not yet been called live. The
+sends the same scope-only PUT, one per object. `applyScopeChanges` uses the same engine, but no
+computer or exclusion has yet been written with it live. The
 script and policy creates (JPM-0012) have not yet been called live either. Open work is tracked in [docs/BACKLOG.md](docs/BACKLOG.md).
 
 Pagination is confirmed live: a real page-1 request returned different records with
@@ -212,7 +216,7 @@ Reversible writes ship as a **second server** built from this repo,
 `dist/write-server.js`
 ([JPM-0008](decisions/JPM-0008-reversible-writes-as-a-separate-server.md)). It
 registers only `createRestrictedSoftware`, `updateRestrictedSoftware`, the four
-scope-membership tools, `applyScopeMembershipBatch`, `createScript` and `createPolicy`: no passthrough, no read tools, and no delete. The read server registers no write
+scope-membership tools, `applyScopeMembershipBatch`, `applyScopeChanges`, `createScript` and `createPolicy`: no passthrough, no read tools, and no delete. The read server registers no write
 tools in any configuration.
 
 - **Its own integration.** A Platform environment integration named for its role
@@ -277,7 +281,7 @@ sources, advanced user searches, user extension attributes and user groups. No o
 permission is held. Never granted, on either integration: any `:delete`, any `:execute`,
 device secrets, device actions and MDM command queuing, enrollment invitations and webhooks;
 the write integration also never holds Devices, Users or Device history read. Holding a permission does not authorise a tool: a tool
-not listed in JPM-0013 needs its own record, and the nine tools above are still the whole
+not listed in JPM-0013 needs its own record, and the ten tools above are still the whole
 write server until a phase of JPM-0013 builds more. The conventions test sweeps the write
 modules for the permanent exclusions (no `DELETE` or `PATCH`, no all-computers scope, no
 device actions, MDM, erase, unmanage, LAPS or recovery secrets).
@@ -291,7 +295,25 @@ re-reads everything and writes nothing if any listed object or group changed sin
 dry run. Operations are grouped by object and each object gets one PUT with its final
 scope, read back and verified in order; the first failure stops the batch, except that an
 object Jamf only normalised (above) is marked `written` with the same two extra fields and
-the batch continues. The rollback is an inverse batch to be dry-run first.
+the batch continues. The rollback is an inverse batch to be dry-run first. **A PUT that Jamf
+answers with an HTTP error is never counted as written**
+([JPM-0014](decisions/JPM-0014-computers-and-exclusions-in-scope-changes.md)): it is not read
+back, because reads have been seen to show a rejected change for minutes afterwards, and it is
+listed under `rollback.notWritten` rather than in the rollback's operations. A policy whose name
+another policy shares is refused, since Jamf has been seen to reject a scope PUT to one.
+
+`applyScopeChanges` ([JPM-0014](decisions/JPM-0014-computers-and-exclusions-in-scope-changes.md))
+is the same engine for computers as well as computer groups, as targets or exclusions. Each
+operation states every field, and nothing defaults:
+`{kind, id, action, member: "computerGroup", list: "include" | "exclude", computerGroupId}` or
+`{kind, id, action, member: "computer", list: "include" | "exclude", computerId}`. The dry run
+gives before and after for every list touched, and the `planHash` covers `member` and `list`
+and every list of each object's live scope. On top of the batch's refusals it refuses the same
+member added to both the targets and the exclusions in one plan, and a change after which every
+target is also excluded. Computer ids are **not** checked before the write, because the write
+integration holds no device read permission (JPM-0013): confirm them with the read server
+first. To exclude one Mac from a profile:
+`{"kind": "profile", "id": 12, "action": "add", "member": "computer", "list": "exclude", "computerId": 345}`.
 
 Credentials are injected at runtime so the secret never lands on disk:
 

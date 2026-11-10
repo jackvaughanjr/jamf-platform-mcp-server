@@ -162,6 +162,30 @@ runs under its own integration and is registered per project.
 Not yet confirmed by a live write: the XML request body, which Jamf's operation pages
 do not publish.
 
+## Profile and policy scope: targets and exclusions (write server)
+
+`applyScopeChanges` ([JPM-0014](../decisions/JPM-0014-computers-and-exclusions-in-scope-changes.md))
+adds or removes a computer group or a single computer, as a target or an exclusion, on macOS
+configuration profiles and policies. `applyScopeMembershipBatch` and the four single tools
+([JPM-0009](../decisions/JPM-0009-computer-group-scope-membership-tools.md),
+[JPM-0010](../decisions/JPM-0010-scope-membership-batch-tool.md)) do the same for computer
+group targets only.
+
+- **Nothing defaults.** Each operation names its member (`computerGroup` or `computer`) and its
+  list (`include` or `exclude`).
+- **One reviewed plan.** The dry run gives before and after for every list touched and a
+  `planHash`; the live run needs that hash and writes nothing if the object or group changed.
+- **One PUT per object, scope only,** read back and checked, non-scope parts by hash. The first
+  failure stops the batch; the rollback is an inverse batch to dry-run first.
+- **A PUT Jamf rejects is not a write,** even if a read shows the change afterwards.
+- **Refused:** All Computers, scope members it does not model, a profile not set to redeploy to
+  "Newly Assigned" only, a policy whose name another policy shares, the same member added to
+  both lists, and a change after which every target is also excluded.
+- **Computer ids are not checked** before the write; confirm them with `findDevices` first.
+
+Not yet confirmed by a live write: a computer target added, or anything written to the
+exclusions, by this engine.
+
 ## Scripts and policies: create one (write server)
 
 `createScript` and `createPolicy`, on the write server
@@ -195,7 +219,8 @@ read-back parsers against a newly created object.
 ## What it cannot do
 
 - **Change anything from the read server.** No writes, by decision and by credential
-  scope. The write server changes Restricted Software and computer group scope membership,
+  scope. The write server changes Restricted Software and profile and policy scope (computers
+  and computer groups, as targets or exclusions),
   creates scripts and disabled policies, and never deletes.
 - **See `PENDING` declarations**, or any device that has not reported at all.
 - **Prove a negative on its own.** Every "nothing found" is bounded by what was

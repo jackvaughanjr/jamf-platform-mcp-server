@@ -8,9 +8,29 @@ done looks like, so a session starting cold can pick it up.
 out of it. The operator keeps those items in Claude Code's project memory for this
 directory, which a new session loads automatically.
 
-Last reviewed 2026-11-06, after JPM-0013.
+Last reviewed 2026-11-09, after JPM-0014.
 
 ---
+
+## 10. Confirm `applyScopeChanges` on its first real computer and exclusion writes
+
+**Why:** [JPM-0014](../decisions/JPM-0014-computers-and-exclusions-in-scope-changes.md)'s
+engine sends the scope-only PUT the JPM-0009 canary verified, but no computer has yet been
+added as a target, and no computer or group has been written to a profile's or policy's
+exclusions, by this code. Also unknown: whether Jamf silently drops a computer id that does not
+exist or rejects the PUT, and whether the 409 that motivated the "rejected PUT is not a write"
+rule really came from a duplicate policy name.
+
+**How:** never write to test. On the first real one-Mac exception, dry-run, review, apply, and
+check `verified: true` on the exclusion list; then, at the end of the exception, apply the
+rollback the same way. If a policy is refused for a shared name, rename it in the console and
+note whether the next PUT is accepted. Optionally, move the four JPM-0009 single tools onto the
+same engine so they gain the shared-name refusal (JPM-0013 decision 2 says the group-only tools
+call one engine); this change moved only the batch.
+
+**Done when:** `docs/gateway-reference.md` records the date and outcome of the first
+exclusion and computer-target writes (accepted as sent, read-back verified or not), and the
+README's "no computer or exclusion has yet been written with it live" line is updated.
 
 ## 9. Confirm the script and policy creates on their first real write
 
@@ -178,7 +198,7 @@ passthrough offers no write verbs. The write server's tool list is pinned only b
 `src/conventions.test.ts`, which reads source, not by what a client actually sees.
 
 **Done when:** CI also starts `dist/write-server.js` with fixture credentials and fails
-unless `tools/list` returns exactly the nine reviewed write tools (see
+unless `tools/list` returns exactly the ten reviewed write tools (see
 `src/conventions.test.ts`). Low priority: the source-level test already holds the
 list.
 
