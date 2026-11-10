@@ -85,10 +85,18 @@ The distinction matters because ADRs are immutable and findings are not.
   searches; updates, enable and disable, scope changes) and its complete permission set,
   decided once and built in phases. Permanent exclusions: no delete, no all-computers scope,
   no device actions, MDM commands or device secrets, on either server's credential. Supersedes
-  parts of JPM-0008, JPM-0009 and JPM-0012.
+  parts of JPM-0008, JPM-0009 and JPM-0012. Decision 5, and decision 6's log-flushing and
+  `*:execute` exclusions for the write integration, amended by exception by JPM-0017.
 - [JPM-0014](JPM-0014-computers-and-exclusions-in-scope-changes.md): `applyScopeChanges`, the
   JPM-0010 engine for computers as well as computer groups, as targets or exclusions, on
   profiles and policies; every operation states `member` and `list`, nothing defaults, and
   `applyScopeMembershipBatch` becomes a second input format over the same engine. A PUT Jamf
   answers with an HTTP error is never a write: not read back, not in the rollback. Refuses a
   policy whose name another policy shares. Supersedes JPM-0010's rollback rule for such a PUT.
+- JPM-0015, JPM-0016: reserved for records on unmerged branches.
+- [JPM-0017](JPM-0017-flush-policy-logs.md): `flushPolicyLogs` flushes one policy's log for
+  listed computers or, stated explicitly, all computers, under the one added permission
+  `flush-policy-logs:execute` (never `policies:delete`). A route guard in front of the write
+  server's client refuses every DELETE except those two Classic `logflush` shapes. Dry run and
+  plan hash; never reports the flush verified, since the log is readable only by the read
+  server; no rollback. Amends JPM-0013 decisions 5 and 6 by exception.
