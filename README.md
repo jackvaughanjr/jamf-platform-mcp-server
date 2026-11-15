@@ -3,7 +3,7 @@
 ![Tier](https://img.shields.io/badge/tier-Prototype-yellow)
 ![Upstream](https://img.shields.io/badge/upstream-Jamf%20Platform%20API%20(Beta)-orange)
 ![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen)
-![Tests](https://img.shields.io/badge/tests-494%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-523%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![SemVer](https://img.shields.io/badge/SemVer-2.0.0-blue)
 ![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)
@@ -19,11 +19,12 @@ read-only integration cannot mutate a fleet no matter what this code does. See
 A second, optional server built from the same code makes a deliberately narrow set
 of reversible writes, today Restricted Software create and update, scope changes on
 profiles and policies (computers and computer groups, as targets or exclusions), and
-script and (always disabled) policy creation, under its own
+script and (always disabled) policy creation, and flushing one policy's log, under its own
 credential ([JPM-0008](decisions/JPM-0008-reversible-writes-as-a-separate-server.md)).
 [JPM-0013](decisions/JPM-0013-write-surface-and-permissions.md) decides the write server's
-whole intended surface and permission set once; the tools it lists beyond today's ten are
-built in phases. The read server never gains a write tool.
+whole intended surface and permission set once; the tools it lists beyond today's are
+built in phases. [JPM-0017](decisions/JPM-0017-flush-policy-logs.md) adds the log flush, the
+one exception to its no-delete rule. The read server never gains a write tool.
 Canonical location: `github.com/jackvaughanjr/jamf-platform-mcp-server`.
 
 **Tier:** Prototype — no production dependants, upstream API in public beta, minor
@@ -60,7 +61,9 @@ Related work worth knowing about:
 ```
 src/
   index.ts              read server: tool registration, stdio transport
-  write-server.ts       write server (JPM-0008 to JPM-0014): the ten write tools, nothing else
+  write-server.ts       write server (JPM-0008 to JPM-0017): the eleven write tools, nothing else
+  write-route-guard.ts  the write server's client: refuses every DELETE but the policy-log flush, before sending (JPM-0017)
+  flush-policy-logs.ts  write logic: flush one policy's log, listed computers or all, plan hash, no rollback (JPM-0017)
   restricted-software.ts  write logic: scope rules, XML, diff, read-back, rollback
   scope-membership.ts   write logic: add/remove one computer group in a profile or policy scope
   scope-changes.ts      write logic: the scope-change engine (plan hash, one PUT per object) and applyScopeChanges: computers or groups, targets or exclusions (JPM-0014)
@@ -145,8 +148,9 @@ tools (`addComputerGroupToProfileScope`, `removeComputerGroupFromProfileScope`,
 [JPM-0009](decisions/JPM-0009-computer-group-scope-membership-tools.md)), and
 `applyScopeMembershipBatch` ([JPM-0010](decisions/JPM-0010-scope-membership-batch-tool.md)),
 `applyScopeChanges` ([JPM-0014](decisions/JPM-0014-computers-and-exclusions-in-scope-changes.md)),
-and `createScript` and `createPolicy`
-([JPM-0012](decisions/JPM-0012-create-script-and-policy-tools.md)), nothing else.
+`createScript` and `createPolicy`
+([JPM-0012](decisions/JPM-0012-create-script-and-policy-tools.md)), and `flushPolicyLogs`
+([JPM-0017](decisions/JPM-0017-flush-policy-logs.md)), nothing else.
 The restricted-software read path is confirmed live against real entries, and
 **updates are confirmed live** (2026-11-04): Jamf accepted the XML body, which its pages
 do not publish, and the read-back verified. **Create has not yet been called.** The
@@ -216,7 +220,7 @@ Reversible writes ship as a **second server** built from this repo,
 `dist/write-server.js`
 ([JPM-0008](decisions/JPM-0008-reversible-writes-as-a-separate-server.md)). It
 registers only `createRestrictedSoftware`, `updateRestrictedSoftware`, the four
-scope-membership tools, `applyScopeMembershipBatch`, `applyScopeChanges`, `createScript` and `createPolicy`: no passthrough, no read tools, and no delete. The read server registers no write
+scope-membership tools, `applyScopeMembershipBatch`, `applyScopeChanges`, `createScript`, `createPolicy` and `flushPolicyLogs`: no passthrough, no read tools, and no object delete. The read server registers no write
 tools in any configuration.
 
 - **Its own integration.** A Platform environment integration named for its role
@@ -278,13 +282,17 @@ decision 8) is `:read`, `:create` and `:update` on nine resources: `restricted-s
 `categories`, `packages` and `advanced-device-searches` (27 permissions); plus, granted ahead
 of any tool, 20 on patch policies, patch titles, apps, app package information, internal patch
 sources, advanced user searches, user extension attributes and user groups. No other
-permission is held. Never granted, on either integration: any `:delete`, any `:execute`,
-device secrets, device actions and MDM command queuing, enrollment invitations and webhooks;
+permission is held, except `flush-policy-logs:execute` on the write integration for
+`flushPolicyLogs` ([JPM-0017](decisions/JPM-0017-flush-policy-logs.md)). Never granted, on
+either integration: any `:delete` (`policies:delete` included, although Jamf also accepts it for
+the log flush), any other `:execute`, device secrets, device actions and MDM command queuing, enrollment invitations and webhooks;
 the write integration also never holds Devices, Users or Device history read. Holding a permission does not authorise a tool: a tool
-not listed in JPM-0013 needs its own record, and the ten tools above are still the whole
+not listed in JPM-0013 needs its own record, and the eleven tools above are still the whole
 write server until a phase of JPM-0013 builds more. The conventions test sweeps the write
-modules for the permanent exclusions (no `DELETE` or `PATCH`, no all-computers scope, no
-device actions, MDM, erase, unmanage, LAPS or recovery secrets).
+modules for the permanent exclusions (no `PATCH`, no `DELETE` outside the log flush, no
+all-computers scope, no device actions, MDM, erase, unmanage, LAPS or recovery secrets).
+Every request the write server makes also passes a route guard, which refuses any DELETE except
+the two Classic policy-log flush shapes, before a token is fetched.
 
 `applyScopeMembershipBatch` takes 1 to 150 `{kind, id, action, computerGroupId}`
 operations ([JPM-0010](decisions/JPM-0010-scope-membership-batch-tool.md)) so a
@@ -314,6 +322,19 @@ target is also excluded. Computer ids are **not** checked before the write, beca
 integration holds no device read permission (JPM-0013): confirm them with the read server
 first. To exclude one Mac from a profile:
 `{"kind": "profile", "id": 12, "action": "add", "member": "computer", "list": "exclude", "computerId": 345}`.
+
+`flushPolicyLogs` ([JPM-0017](decisions/JPM-0017-flush-policy-logs.md)) flushes one policy's
+log so a "Once per computer" policy runs again on those Macs. It takes
+`{policyId, computers: {"computerIds": [...]} | {"allComputers": true}, interval, dryRun?, planHash?}`
+with nothing defaulted; `interval` is one of Jamf's 20 values, and `"Zero Days"` flushes every
+entry. Listed computers go in an XML body to `DELETE /proclassic/logflush`; all computers use
+`DELETE /proclassic/logflush/policy/id/{id}/interval/{interval}`. The dry run shows the policy's
+state, frequency and scope counts, the exact request and a `planHash`, which the live call needs.
+The write integration cannot read computer history, so the result never calls the flush verified:
+it gives the read server's `platformRequest` calls that show each Mac's entries for the policy,
+to run before and after, and reads the policy back to check it is still there and unchanged. A
+flush has no rollback. Not yet called live. To flush one test Mac:
+`{"policyId": 42, "computers": {"computerIds": [345]}, "interval": "Zero Days"}`.
 
 Credentials are injected at runtime so the secret never lands on disk:
 

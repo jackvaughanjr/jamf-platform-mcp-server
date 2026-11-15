@@ -214,6 +214,28 @@ update, enable or delete.
 Not yet confirmed by a live create: the policy XML body (Jamf publishes none) and both
 read-back parsers against a newly created object.
 
+## Policies: flush one policy's log so it runs again (write server)
+
+`flushPolicyLogs` ([JPM-0017](../decisions/JPM-0017-flush-policy-logs.md)) flushes one
+policy's log so that a "Once per computer" policy runs again on those Macs, for example after
+its package changed. Staged use: one test Mac, then the rest.
+
+- **Nothing defaults.** `policyId`; `computers` is `{"computerIds": [...]}` (1 to 100) or
+  `{"allComputers": true}`, never inferred; `interval` is one of Jamf's 20 values, and
+  `"Zero Days"` flushes every entry.
+- **One reviewed plan.** The dry run shows the policy's state, frequency and scope counts, the
+  exact request and a `planHash`; the live call needs that hash.
+- **The flush is never reported verified.** This server cannot read computer history. The result
+  gives the read server's `platformRequest` calls that list each Mac's entries for the policy:
+  run them before and after. It does read the policy back to check it still exists unchanged.
+- **No rollback.** A flushed entry is gone. Disable the policy or take Macs out of its scope to
+  stop reruns.
+- **Only that.** A route guard in front of the write server refuses every other DELETE, the
+  all-policies flush included.
+
+Not yet confirmed by a live flush: the request formats, and whether Jamf honours the computer
+list in the body.
+
 ---
 
 ## What it cannot do
@@ -221,7 +243,7 @@ read-back parsers against a newly created object.
 - **Change anything from the read server.** No writes, by decision and by credential
   scope. The write server changes Restricted Software and profile and policy scope (computers
   and computer groups, as targets or exclusions),
-  creates scripts and disabled policies, and never deletes.
+  creates scripts and disabled policies, flushes one policy's log, and never deletes an object.
 - **See `PENDING` declarations**, or any device that has not reported at all.
 - **Prove a negative on its own.** Every "nothing found" is bounded by what was
   checked; the tools say what that was.

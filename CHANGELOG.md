@@ -10,6 +10,29 @@ guarantee.
 
 ## [Unreleased]
 
+### Added
+
+- `flushPolicyLogs` on the write server
+  ([JPM-0017](decisions/JPM-0017-flush-policy-logs.md)): flush one policy's log for listed
+  computers (Classic `DELETE /logflush` with an XML body) or, stated as `allComputers: true`,
+  for every computer (`DELETE /logflush/policy/id/{id}/interval/{interval}`), so a "Once per
+  computer" policy runs again. Every field stated, dry run by default, plan hash on the live
+  call, a rejected request reported not flushed, the policy read back afterwards. The flush
+  itself is never reported verified, because the write integration cannot read computer history;
+  the result gives the read-server calls that confirm it. No rollback. Needs
+  `flush-policy-logs:execute` on the write integration, never `policies:delete`. Not yet called
+  live.
+- A route guard in front of the write server's client (`src/write-route-guard.ts`): every
+  DELETE except the two policy-log flush shapes is refused before a token is fetched or anything
+  is sent, as is any method other than GET, POST, PUT and that DELETE. Amends JPM-0013 decisions
+  5 and 6 by exception; no tool deletes an object.
+
+### Changed
+
+- The conventions test holds ADR numbers JPM-0015 and JPM-0016 as reserved for records on
+  unmerged branches, and allows the `DELETE` verb only in the flush module and the guard, with
+  narrower checks on both.
+
 ### Documentation
 
 - `CLAUDE.md` and `CONTRIBUTING.md` state a working rule for agents acting for the maintainer: a
